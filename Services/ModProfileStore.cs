@@ -20,19 +20,20 @@ internal sealed class ModProfileStore
     private readonly string _storePath;
     private readonly string _statePath;
     private readonly string _journalPath;
-    private readonly ModPackageCache _packages;
 
-    internal ModProfileStore(string appDirectory, string gamePath, ModPackageCache packages)
+    internal ModProfileStore(string appDirectory, string gamePath, string profilesRoot)
     {
         _appDirectory = appDirectory;
-        _gamePath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(gamePath));
-        _packages = packages;
-        _profilesRoot = AppPaths.ProfilesRoot;
+        _gamePath = CanonicalPath(gamePath);
+        _profilesRoot = profilesRoot;
         var key = ProfileFiles.PathComparer == StringComparer.OrdinalIgnoreCase ? _gamePath.ToUpperInvariant() : _gamePath;
-        _storePath = Path.Combine(_profilesRoot, ModPackageCache.DirectoryKey(key));
-        _statePath = Path.Combine(_storePath, "state.json");
-        _journalPath = Path.Combine(_storePath, "pending.json");
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key));
+        _storePath = Path.Combine(_profilesRoot, Convert.ToHexString(hash));
+        _statePath = Path.Combine(_storePath, "state.v2.json");
+        _journalPath = Path.Combine(_storePath, "pending.v2.json");
     }
+
+    private static string CanonicalPath(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
     private FileStream Lock()
     {
@@ -50,27 +51,35 @@ internal sealed class ModProfileStore
             return existing;
         }
 
-        var legacyPath = Path.Combine(_appDirectory, "Data", "modprofiles.json");
-        bool useLegacy = (string.IsNullOrWhiteSpace(legacyGamePath) ||
-            ProfileFiles.PathComparer.Equals(_gamePath, Path.TrimEndingDirectorySeparator(Path.GetFullPath(legacyGamePath)))) &&
-            ClaimLegacyData();
-        var legacy = useLegacy && File.Exists(legacyPath) ? ProfileFiles.ReadJson<LegacyProfiles>(legacyPath) : new();
-        if (legacy.Profiles.Count == 0)
-            legacy.Profiles.Add(new ModProfile { Name = "Default" });
-
-        var active = legacy.Profiles.FirstOrDefault(p => p.Name == legacy.ActiveProfile) ?? legacy.Profiles[0];
-        active.DeployedModIds = [];
-        var state = new GameModProfiles
+        var legacyState = Path.Combine(_storePath, "state.json");
+        GameModProfiles state;
+        if (File.Exists(legacyState))
         {
-            Profiles = legacy.Profiles,
-            ActiveProfileId = active.Id,
-            InstalledMods = useLegacy ? ReadLegacyInstalledMods() : []
-        };
+            state = ProfileFiles.ReadJson<GameModProfiles>(legacyState);
+            ProfileFileTransaction.Recover(_gamePath, Path.Combine(_storePath, "pending.json"), state.LastOperationId);
+            state.LastOperationId = null;
+            state.ManagedInstalls.Clear();
+            foreach (var profile in state.Profiles)
+                profile.LegacySnapshot = profile.SnapshotId.HasValue;
+        }
+        else
+        {
+            var legacyPath = Path.Combine(_appDirectory, "Data", "modprofiles.json");
+            var useLegacy = File.Exists(legacyPath)
+                && (string.IsNullOrWhiteSpace(legacyGamePath) || ProfileFiles.PathComparer.Equals(_gamePath, CanonicalPath(legacyGamePath)))
+                && ClaimLegacyProfiles();
+            var legacy = useLegacy ? ProfileFiles.ReadJson<LegacyProfiles>(legacyPath) : new();
+            if (legacy.Profiles.Count == 0)
+                legacy.Profiles.Add(new ModProfile { Name = "Default" });
+            var active = legacy.Profiles.FirstOrDefault(profile => profile.Name == legacy.ActiveProfile) ?? legacy.Profiles[0];
+            state = new GameModProfiles { Profiles = legacy.Profiles, ActiveProfileId = active.Id };
+        }
+
         ProfileFiles.WriteJson(_statePath, state);
         return state;
     }
 
-    private bool ClaimLegacyData()
+    private bool ClaimLegacyProfiles()
     {
         using var migrationLock = new FileStream(Path.Combine(_profilesRoot, "legacy.lock"), FileMode.OpenOrCreate,
             FileAccess.ReadWrite, FileShare.None);
@@ -82,35 +91,21 @@ internal sealed class ModProfileStore
         return true;
     }
 
-    private List<ProfileMod> ReadLegacyInstalledMods()
-    {
-        var installed = new List<ProfileMod>();
-        var library = Path.Combine(_appDirectory, "Library");
-        if (!Directory.Exists(library))
-            return installed;
-
-        foreach (var folder in Directory.EnumerateDirectories(library))
-        {
-            var manifest = Path.Combine(folder, ".deployment.json");
-            if (!File.Exists(manifest) || ModPackageCache.ReadPackage(folder) is not ModPackage package)
-                continue;
-
-            var files = ProfileFiles.ReadJson<List<string>>(manifest)
-                .Select(ProfileFiles.Normalize).Distinct(ProfileFiles.PathComparer).ToList();
-            if (files.Count > 0)
-                installed.Add(new ProfileMod(package.Mod, files));
-        }
-        return LiveMods(installed);
-    }
-
     private GameModProfiles Load(Guid? expectedProfile = null)
     {
         var state = ProfileFiles.ReadJson<GameModProfiles>(_statePath);
         ProfileFileTransaction.Recover(_gamePath, _journalPath, state.LastOperationId);
         if (expectedProfile.HasValue && expectedProfile != state.ActiveProfileId)
             throw new InvalidOperationException("The active profile changed in another window. Reload the game folder.");
-        state.InstalledMods = LiveMods(state.InstalledMods);
+
+        state.InstalledMods = LiveInstalls(_gamePath, state.InstalledMods);
         return state;
+    }
+
+    internal GameModProfiles Read()
+    {
+        using var fileLock = Lock();
+        return Load();
     }
 
     internal FileStream LockForLaunch(Guid expectedProfile)
@@ -128,36 +123,45 @@ internal sealed class ModProfileStore
         }
     }
 
-    private List<ProfileMod> LiveMods(IEnumerable<ProfileMod> mods) =>
-        mods.Select(mod => mod with
+    private static List<ManagedInstall> LiveInstalls(string root, List<ManagedInstall> installs) =>
+        installs.Where(install =>
+        {
+            try
             {
-                Files = mod.Files.Where(path => File.Exists(ProfileFiles.Resolve(_gamePath, path))).ToList()
-            })
-            .Where(mod => mod.Files.Count > 0)
-            .ToList();
+                return Matches(ProfileFiles.Resolve(root, install.RelativePath), install.Sha256);
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }).ToList();
+
+    private static bool Matches(string path, string sha256) =>
+        File.Exists(path) && ModInstallerService.HashFile(path) == sha256;
 
     internal GameModProfiles Edit(Guid expectedProfile, Action<GameModProfiles> edit)
     {
         using var fileLock = Lock();
         var state = Load(expectedProfile);
         edit(state);
+        foreach (var id in state.ManagedInstalls.Keys.Except(state.Profiles.Select(profile => profile.Id)).ToArray())
+            state.ManagedInstalls.Remove(id);
         ProfileFiles.WriteJson(_statePath, state);
         PruneSnapshots(state);
         return state;
     }
 
-    internal (GameModProfiles State, List<string> Missing) Switch(
-        Guid expectedProfile, Guid targetId, ModProfile? clone, bool deleteActive, Action checkGameStopped)
+    internal GameModProfiles Switch(Guid expectedProfile, Guid targetId, ModProfile? clone, bool deleteActive,
+        IReadOnlyList<StagedMod> imported, IReadOnlyList<Guid> pendingIds, Action checkGameStopped)
     {
         using var fileLock = Lock();
         var state = Load(expectedProfile);
-        var outgoing = state.Profiles.Single(p => p.Id == expectedProfile);
-        var target = clone ?? state.Profiles.Single(p => p.Id == targetId);
-        var missing = new List<string>();
+        var outgoing = state.Profiles.Single(profile => profile.Id == expectedProfile);
+        var target = clone ?? state.Profiles.Single(profile => profile.Id == targetId);
         if (outgoing.Id == target.Id)
-            return (state, missing);
+            return state;
         if (clone != null && state.Profiles.Any(profile => profile.Name == clone.Name))
             throw new InvalidOperationException("A profile with that name already exists.");
+        if (!target.PendingSubmissionIds.SequenceEqual(pendingIds))
+            throw new InvalidOperationException("The target profile changed in another window. Reload the game folder.");
 
         var generation = Guid.NewGuid();
         var snapshot = SnapshotPath(outgoing.Id, generation);
@@ -166,48 +170,59 @@ internal sealed class ModProfileStore
             Transact(state, transaction =>
             {
                 checkGameStopped();
-                Capture(snapshot, state.InstalledMods);
-                List<ProfileMod> incomingMods;
-                string incoming;
-                if (clone != null)
+                foreach (var directory in ProfileFiles.ProfileDirectories)
+                    ProfileFiles.CopyDirectory(ProfileFiles.Resolve(_gamePath, directory), Path.Combine(snapshot, directory));
+
+                List<ManagedInstall> incoming;
+                var empty = Path.Combine(transaction.WorkFolder, "empty");
+                Directory.CreateDirectory(empty);
+                if (target.SnapshotId is Guid saved)
                 {
-                    incomingMods = state.InstalledMods;
-                    incoming = Path.Combine(transaction.WorkFolder, "new-profile");
-                    CopyManagedFiles(snapshot, incoming, incomingMods);
-                    state.Profiles.Add(clone);
-                }
-                else if (target.SnapshotId is Guid snapshotId)
-                {
-                    incoming = SnapshotPath(target.Id, snapshotId);
-                    incomingMods = ProfileFiles.ReadJson<List<ProfileMod>>(Path.Combine(incoming, "manifest.json"));
+                    var folder = SnapshotPath(target.Id, saved, target.LegacySnapshot);
+                    foreach (var directory in ProfileFiles.ProfileDirectories)
+                    {
+                        var incomingFolder = target.LegacySnapshot && directory == ProfileFiles.Plugins
+                            ? Path.Combine(folder, "outside", directory)
+                            : Path.Combine(folder, directory);
+                        if (!Directory.Exists(incomingFolder) && (directory == ProfileFiles.Mods || File.Exists(incomingFolder)))
+                            throw new IOException($"The saved {directory} folder is missing for {target.Name}.");
+                        transaction.Add(directory, Directory.Exists(incomingFolder) ? incomingFolder : empty, isDirectory: true);
+                    }
+                    incoming = target.LegacySnapshot ? [] : LiveInstalls(folder, state.ManagedInstalls.GetValueOrDefault(target.Id) ?? []);
                 }
                 else
                 {
-                    incoming = Path.Combine(transaction.WorkFolder, "legacy");
-                    incomingMods = Materialize(target, incoming, missing);
-                }
-
-                var incomingFolder = Path.Combine(incoming, ProfileFiles.Mods);
-                if (!Directory.Exists(incomingFolder))
-                    throw new DirectoryNotFoundException($"The saved Mods folder is missing for {target.Name}.");
-                transaction.Add(ProfileFiles.Mods, incomingFolder, isDirectory: true);
-
-                var outgoingOutside = OutsideFiles(state.InstalledMods);
-                var incomingOutside = OutsideFiles(incomingMods);
-                foreach (var path in outgoingOutside.Except(incomingOutside, ProfileFiles.PathComparer))
-                    transaction.Add(path, replacement: null);
-                foreach (var path in incomingOutside)
-                {
-                    EnsureOwnedOrMissing(outgoingOutside, path);
-                    transaction.Add(path, ResolveSnapshotFile(incoming, path));
+                    var folder = Path.Combine(transaction.WorkFolder, "new-profile");
+                    foreach (var directory in ProfileFiles.ProfileDirectories)
+                        Directory.CreateDirectory(Path.Combine(folder, directory));
+                    if (clone != null)
+                    {
+                        incoming = state.InstalledMods.ToList();
+                        foreach (var install in incoming)
+                            File.Copy(ProfileFiles.Resolve(snapshot, install.RelativePath), ProfileFiles.Resolve(folder, install.RelativePath));
+                        state.Profiles.Add(clone);
+                    }
+                    else
+                    {
+                        incoming = PrepareInstalls(folder, [], imported, null, (path, source) =>
+                            File.Copy(source, ProfileFiles.Resolve(folder, path)));
+                    }
+                    foreach (var directory in ProfileFiles.ProfileDirectories)
+                        transaction.Add(directory, Path.Combine(folder, directory), isDirectory: true);
                 }
 
                 outgoing.SnapshotId = generation;
-                target.DeployedModIds = [];
+                outgoing.LegacySnapshot = false;
+                target.PendingSubmissionIds = [];
+                target.SnapshotId = null;
+                target.LegacySnapshot = false;
                 state.ActiveProfileId = target.Id;
-                state.InstalledMods = incomingMods;
+                state.InstalledMods = incoming;
                 if (deleteActive)
+                {
                     state.Profiles.Remove(outgoing);
+                    state.ManagedInstalls.Remove(outgoing.Id);
+                }
                 checkGameStopped();
             });
         }
@@ -218,136 +233,88 @@ internal sealed class ModProfileStore
         }
 
         PruneSnapshots(state);
-        return (state, missing);
+        return state;
     }
 
-    private void Capture(string snapshot, List<ProfileMod> mods)
+    internal bool CanReuse(Guid expectedProfile, ManagedInstall install)
     {
-        var liveMods = ProfileFiles.Resolve(_gamePath, ProfileFiles.Mods);
-        if (Path.Exists(liveMods) && !Directory.Exists(liveMods))
-            throw new IOException("A file is blocking the Mods folder.");
-
-        ProfileFiles.CopyDirectory(liveMods, Path.Combine(snapshot, ProfileFiles.Mods));
-        foreach (var path in OutsideFiles(mods))
-            CopyToSnapshot(snapshot, path, ProfileFiles.Resolve(_gamePath, path));
-        ProfileFiles.WriteJson(Path.Combine(snapshot, "manifest.json"), mods);
+        using var fileLock = Lock();
+        return CheckDestination(_gamePath, Load(expectedProfile).InstalledMods, install);
     }
 
-    private static void CopyManagedFiles(string snapshot, string destination, List<ProfileMod> mods)
-    {
-        Directory.CreateDirectory(Path.Combine(destination, ProfileFiles.Mods));
-        var paths = mods.SelectMany(mod => mod.Files).Distinct(ProfileFiles.PathComparer);
-        foreach (var path in paths)
-        {
-            var source = ResolveSnapshotFile(snapshot, path);
-            CopyToSnapshot(destination, path, source);
-        }
-    }
-
-    private static string ResolveSnapshotFile(string snapshot, string path)
-    {
-        var root = ProfileFiles.IsInMods(path) ? snapshot : Path.Combine(snapshot, "outside");
-        return ProfileFiles.Resolve(root, path);
-    }
-
-    private static void CopyToSnapshot(string snapshot, string path, string source, bool overwrite = false)
-    {
-        var destination = ResolveSnapshotFile(snapshot, path);
-        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        File.Copy(source, destination, overwrite);
-    }
-
-    private List<ProfileMod> Materialize(ModProfile target, string folder, List<string> missing)
-    {
-        Directory.CreateDirectory(Path.Combine(folder, ProfileFiles.Mods));
-        var mods = new List<ProfileMod>();
-        var ids = (target.DeployedModIds ?? []).Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id.Trim()).Distinct(StringComparer.OrdinalIgnoreCase);
-        foreach (var id in ids)
-        {
-            if (_packages.Find(id) is not ModPackage package)
-            {
-                missing.Add(id);
-                continue;
-            }
-            var files = PackageFiles(package);
-            foreach (var (path, source) in files)
-                CopyToSnapshot(folder, path, source, overwrite: true);
-            mods.Add(new ProfileMod(package.Mod, files.Keys.ToList()));
-        }
-        return mods;
-    }
-
-    internal GameModProfiles ChangeInstalledMods(Guid expectedProfile, IReadOnlyList<ModPackage> install, string? uninstall = null)
+    internal GameModProfiles ChangeInstalledMods(Guid expectedProfile, IReadOnlyList<StagedMod> install, Guid? uninstall = null)
     {
         using var fileLock = Lock();
         var state = Load(expectedProfile);
-        var replaced = install.Select(p => p.Mod.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (uninstall != null)
-            replaced.Add(uninstall);
-        var previous = state.InstalledMods;
-        var next = previous.Where(p => !replaced.Contains(p.Mod.Id)).ToList();
-        var incoming = new Dictionary<string, string>(ProfileFiles.PathComparer);
-        foreach (var package in install)
-        {
-            var files = PackageFiles(package);
-            foreach (var (path, source) in files)
-                incoming[path] = source;
-            next.Add(new ProfileMod(package.Mod, files.Keys.ToList()));
-        }
-
-        var beforePaths = previous.SelectMany(p => p.Files).ToHashSet(ProfileFiles.PathComparer);
-        var afterPaths = next.SelectMany(p => p.Files).ToHashSet(ProfileFiles.PathComparer);
         Transact(state, transaction =>
         {
-            foreach (var path in beforePaths.Except(afterPaths, ProfileFiles.PathComparer))
-                transaction.Add(path, replacement: null);
+            var previous = state.InstalledMods;
+            var next = PrepareInstalls(_gamePath, previous, install, uninstall, (path, source) => transaction.Add(path, source));
+            var remainingPaths = next.Select(item => item.RelativePath).ToHashSet(ProfileFiles.PathComparer);
+            foreach (var existing in previous)
+                if (!remainingPaths.Contains(existing.RelativePath) && Matches(ProfileFiles.Resolve(_gamePath, existing.RelativePath), existing.Sha256))
+                    transaction.Add(existing.RelativePath, replacement: null);
 
-            foreach (var (path, source) in incoming)
-            {
-                if (!ProfileFiles.IsInMods(path))
-                    EnsureOwnedOrMissing(beforePaths, path);
-                transaction.Add(path, source);
-            }
             state.InstalledMods = next;
         });
         return state;
     }
 
-    private static Dictionary<string, string> PackageFiles(ModPackage package)
+    private static List<ManagedInstall> PrepareInstalls(string root, List<ManagedInstall> previous,
+        IReadOnlyList<StagedMod> staged, Guid? uninstall, Action<string, string> addFile)
     {
-        var files = new Dictionary<string, string>(ProfileFiles.PathComparer);
-        var options = new EnumerationOptions
+        var replaced = staged.Select(package => package.Install.SubmissionUuid).ToHashSet();
+        if (replaced.Count != staged.Count)
+            throw new InvalidDataException("The install contains the same submission more than once.");
+        if (uninstall is Guid id)
+            replaced.Add(id);
+        var next = previous.Where(install => !replaced.Contains(install.SubmissionUuid)).ToList();
+        var paths = next.Select(install => install.RelativePath).ToHashSet(ProfileFiles.PathComparer);
+        foreach (var package in staged)
         {
-            RecurseSubdirectories = true,
-            AttributesToSkip = FileAttributes.ReparsePoint,
-            IgnoreInaccessible = false
-        };
-        foreach (var source in Directory.EnumerateFiles(package.Folder, "*", options))
-        {
-            if (Path.GetFileName(source) is "mod.json" or ".deployment.json")
-                continue;
-            var relative = Path.GetRelativePath(package.Folder, source);
-            ProfileFiles.Resolve(package.Folder, relative);
-            var path = ProfileFiles.Normalize(relative);
-            if (path == ProfileFiles.Mods)
-                throw new InvalidDataException("A mod package cannot replace the Mods directory with a file.");
-            files.Add(path, source);
+            var install = package.Install;
+            if (!paths.Add(install.RelativePath))
+                throw new IOException($"More than one submission uses {install.RelativePath}.");
+            bool reuse;
+            try
+            {
+                reuse = CheckDestination(root, previous, install);
+            }
+            catch (ExternalModConflictException conflict) when (
+                package.ApprovedExternalHash != null && package.ApprovedExternalHash == conflict.Sha256)
+            {
+                reuse = false;
+            }
+            if (!reuse)
+            {
+                if (package.DownloadPath is not { } source)
+                    throw new IOException($"{install.RelativePath} changed before it could be adopted. Retry the install.");
+                addFile(install.RelativePath, source);
+            }
+            next.Add(install);
         }
-
-        if (files.Count == 0)
-            throw new InvalidDataException($"{package.Mod.Name} has no files to install.");
-        return files;
+        return next;
     }
 
-    private void EnsureOwnedOrMissing(HashSet<string> owned, string path)
+    private static bool CheckDestination(string root, List<ManagedInstall> installed, ManagedInstall candidate)
     {
-        if (!owned.Contains(path) && Path.Exists(ProfileFiles.Resolve(_gamePath, path)))
-            throw new IOException($"An untracked file or folder is blocking {path}.");
-    }
+        var owner = installed.FirstOrDefault(item => ProfileFiles.PathComparer.Equals(item.RelativePath, candidate.RelativePath));
+        if (owner != null && owner.SubmissionUuid != candidate.SubmissionUuid)
+            throw new IOException($"{candidate.RelativePath} is installed by {owner.Name}.");
 
-    private static HashSet<string> OutsideFiles(IEnumerable<ProfileMod> mods) =>
-        mods.SelectMany(p => p.Files).Where(path => !ProfileFiles.IsInMods(path)).ToHashSet(ProfileFiles.PathComparer);
+        var path = ProfileFiles.Resolve(root, candidate.RelativePath);
+        if (!Path.Exists(path))
+            return false;
+        if (Matches(path, candidate.Sha256))
+            return true;
+        if (owner == null || !Matches(path, owner.Sha256))
+        {
+            if (File.Exists(path))
+                throw new ExternalModConflictException(candidate.RelativePath, ModInstallerService.HashFile(path));
+            throw new IOException($"An external folder is blocking {candidate.RelativePath}.");
+        }
+        return false;
+    }
 
     private void Transact(GameModProfiles state, Action<ProfileFileTransaction> prepare)
     {
@@ -383,17 +350,17 @@ internal sealed class ModProfileStore
         catch (UnauthorizedAccessException) { }
     }
 
-    private string SnapshotPath(Guid profile, Guid generation) =>
-        Path.Combine(_storePath, "snapshots", profile.ToString("N"), generation.ToString("N"));
+    private string SnapshotPath(Guid profile, Guid generation, bool legacy = false) =>
+        Path.Combine(_storePath, legacy ? "snapshots" : "snapshots.v2", profile.ToString("N"), generation.ToString("N"));
 
     private void PruneSnapshots(GameModProfiles state)
     {
-        var root = Path.Combine(_storePath, "snapshots");
+        var root = Path.Combine(_storePath, "snapshots.v2");
         if (!Directory.Exists(root))
             return;
 
-        var saved = state.Profiles.Where(p => p.SnapshotId.HasValue)
-            .Select(p => SnapshotPath(p.Id, p.SnapshotId!.Value)).ToHashSet(ProfileFiles.PathComparer);
+        var saved = state.Profiles.Where(profile => profile.SnapshotId.HasValue && !profile.LegacySnapshot)
+            .Select(profile => SnapshotPath(profile.Id, profile.SnapshotId!.Value)).ToHashSet(ProfileFiles.PathComparer);
         try
         {
             foreach (var profile in Directory.EnumerateDirectories(root))

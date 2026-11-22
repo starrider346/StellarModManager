@@ -134,6 +134,8 @@ internal sealed class ProfileFileTransaction(string gamePath, string journalPath
 internal static class ProfileFiles
 {
     internal const string Mods = "Mods";
+    internal const string Plugins = "Plugins";
+    internal static readonly string[] ProfileDirectories = [Mods, Plugins];
 
     internal static StringComparer PathComparer { get; } =
         OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
@@ -150,12 +152,11 @@ internal static class ProfileFiles
             throw new InvalidDataException($"Invalid managed file path {path}.");
         }
 
-        if (string.Equals(parts[0], Mods, StringComparison.OrdinalIgnoreCase))
-            parts[0] = Mods;
+        foreach (var folder in ProfileDirectories)
+            if (string.Equals(parts[0], folder, StringComparison.OrdinalIgnoreCase))
+                parts[0] = folder;
         return string.Join('/', parts);
     }
-
-    internal static bool IsInMods(string relativePath) => relativePath.StartsWith("Mods/", StringComparison.Ordinal);
 
     internal static string Resolve(string root, string relativePath)
     {

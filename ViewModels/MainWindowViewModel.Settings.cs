@@ -44,7 +44,7 @@ public partial class MainWindowViewModel
     [ObservableProperty]
     public partial bool IsCompactView { get; set; }
 
-    private readonly DispatcherTimer _updateCheckTimer;
+    private readonly DispatcherTimer _updateCheckTimer = new() { Interval = System.TimeSpan.FromMinutes(30) };
 
     // Settings are saved as soon as they change
     private void PersistSettings()
@@ -57,7 +57,7 @@ public partial class MainWindowViewModel
             AutoDeployDependencies = AutoDeployDependencies,
             AutoCheckForModUpdates = AutoCheckForModUpdates,
             AutoCheckForAppUpdates = AutoCheckForAppUpdates,
-            ModSort = SortIndex,
+            CatalogSort = SortIndex,
             CompactModList = IsCompactView
         });
     }
@@ -80,7 +80,11 @@ public partial class MainWindowViewModel
 
     partial void OnAutoDeployDependenciesChanged(bool value) => PersistSettings();
 
-    partial void OnIsCompactViewChanged(bool value) => PersistSettings();
+    partial void OnIsCompactViewChanged(bool value)
+    {
+        ReloadBrowseLayout();
+        PersistSettings();
+    }
 
     [RelayCommand]
     private void ShowListView() => IsCompactView = false;

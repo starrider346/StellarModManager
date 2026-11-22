@@ -503,6 +503,26 @@
 
             <views:ConfirmRemoveModView IsVisible="{Binding IsConfirmRemoveOpen}"/>
             <views:ConfirmDeployModView IsVisible="{Binding IsConfirmDependenciesOpen}"/>
+            <Border Classes="overlay" IsVisible="{Binding IsConfirmReplacementOpen}">
+                <Border Classes="dialog" Width="400">
+                    <StackPanel Spacing="16">
+                        <TextBlock FontSize="20" FontWeight="SemiBold"
+                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ConfirmReplacementTitle]}"/>
+                        <TextBlock Text="{Binding ConfirmReplacementMessage}" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Theme.TextSecondaryBrush}"/>
+                        <Grid ColumnDefinitions="*,*" Margin="0,8,0,0">
+                            <Button Grid.Column="0" Classes="danger" Margin="0,0,4,0"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ConfirmReplacementButton]}"
+                                    Command="{Binding ConfirmReplacementCommand}"/>
+                            <Button Grid.Column="1" Classes="subtle" Margin="4,0,0,0"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Cancel]}"
+                                    Command="{Binding CancelReplacementCommand}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Border>
             <views:UpdatePanelView IsVisible="{Binding IsUpdatePanelOpen}"/>
 
         </Grid>

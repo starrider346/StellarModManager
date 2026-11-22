@@ -14,21 +14,21 @@ public class GridWrapPanel : Panel, INavigableContainer
 
 
     public static readonly StyledProperty<double> ItemSpacingProperty =
-        AvaloniaProperty.Register<WrapPanel, double>(nameof(ItemSpacing));
+        AvaloniaProperty.Register<GridWrapPanel, double>(nameof(ItemSpacing));
 
     public static readonly StyledProperty<double> LineSpacingProperty =
-        AvaloniaProperty.Register<WrapPanel, double>(nameof(LineSpacing));
+        AvaloniaProperty.Register<GridWrapPanel, double>(nameof(LineSpacing));
 
     public static readonly StyledProperty<double> ItemWidthProperty =
-        AvaloniaProperty.Register<WrapPanel, double>(nameof(ItemWidth), double.NaN);
+        AvaloniaProperty.Register<GridWrapPanel, double>(nameof(ItemWidth), double.NaN);
 
     public static readonly StyledProperty<double> ItemHeightProperty =
-        AvaloniaProperty.Register<WrapPanel, double>(nameof(ItemHeight), double.NaN);
+        AvaloniaProperty.Register<GridWrapPanel, double>(nameof(ItemHeight), double.NaN);
 
 
     static GridWrapPanel()
     {
-        AffectsMeasure<WrapPanel>(ItemSpacingProperty, LineSpacingProperty, ItemWidthProperty, ItemHeightProperty);
+        AffectsMeasure<GridWrapPanel>(ItemSpacingProperty, LineSpacingProperty, ItemWidthProperty, ItemHeightProperty);
     }
 
 
@@ -155,7 +155,9 @@ public class GridWrapPanel : Panel, INavigableContainer
                 curLineSize.U += ItemSpacing;
             }
             curLineSize.U += itemU;
-            curLineSize.V = Math.Max(curLineSize.V, Math.Min(childConstraint.V, childDesiredSize.V));
+            curLineSize.V = double.IsNaN(ItemHeight)
+                ? Math.Max(curLineSize.V, childDesiredSize.V)
+                : ItemHeight;
 
             curLinePrevWasVisible = true;
         }
@@ -219,7 +221,9 @@ public class GridWrapPanel : Panel, INavigableContainer
                 curLineSize.U += ItemSpacing;
             }
             curLineSize.U += itemU;
-            curLineSize.V = Math.Max(curLineSize.V, Math.Min(childConstraint.V, childDesiredSize.V));
+            curLineSize.V = double.IsNaN(ItemHeight)
+                ? Math.Max(curLineSize.V, childDesiredSize.V)
+                : ItemHeight;
 
             curLinePrevWasVisible = true;
         }

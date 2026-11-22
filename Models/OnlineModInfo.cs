@@ -15,52 +15,61 @@ public record ModTag(string Text, bool IsAssisted = false, bool IsVibecoded = fa
 
 public partial class OnlineModInfo : ModInfo
 {
-    public OnlineModInfo()
+    internal void RefreshLocalizedText()
     {
-        LocalizationService.Instance.LanguageChanged += (_, _) =>
-        {
-            OnPropertyChanged(nameof(InstallButtonText));
-            OnPropertyChanged(nameof(UpdatedText));
-            OnPropertyChanged(nameof(DownloadsText));
-            RebuildTags();
-        };
+        OnPropertyChanged(nameof(InstallButtonText));
+        OnPropertyChanged(nameof(PublishedText));
+        OnPropertyChanged(nameof(DownloadsText));
+        RebuildTags();
     }
 
-    //Base properties in ModInfo class
+    public SubmissionType Type { get; init; }
+    internal CatalogRelease? Release { get; private set; }
+    internal (Guid?, string?, string?, string?) ChangelogRevision =>
+        (Release?.Uuid, Release?.Version, Release?.Sha256, Release?.Changelog);
+    public bool CanInstall => Release?.IsInstallable == true;
+    public bool CanStartInstall => CanInstall && !IsInstalling;
+    public string OptionalDependencies => string.Join(", ", Release?.Dependencies.Soft.Select(item => item.Name) ?? []);
+    public bool HasOptionalDependencies => OptionalDependencies.Length > 0;
 
-    [JsonPropertyName("downloadUrl")]
-    public string DownloadUrl { get; set; } = "";
-
-    [JsonIgnore] // lazy fix hehe
     public string ThumbnailUrl { get; set; } = "";
 
     [ObservableProperty]
     public partial Bitmap? ThumbnailImage { get; set; }
 
-    [JsonIgnore]
     public List<string> ImageUrls { get; set; } = [];
-
-    [JsonIgnore]
-    public ObservableCollection<Bitmap> GalleryImages { get; } = []; 
-
-    [JsonIgnore]
+    public ObservableCollection<Bitmap> GalleryImages { get; } = [];
     public bool GalleryLoaded { get; set; }
 
-    // UI only
-    public string RepoName { get; set; } = "";
+    public string? RepoUrl { get; private set; }
 
-    public string RepoOwner { get; set; } = "";
+    internal void SetRelease(CatalogRelease? release)
+    {
+        Release = release;
+        Version = release?.Version ?? "";
+        Needs = release?.Dependencies.Hard.Select(item => item.Uuid.ToString()).ToList() ?? [];
+        RepoUrl = null;
+        if (Uri.TryCreate(release?.Source, UriKind.Absolute, out var url) && url.Host == "github.com" &&
+            url.Scheme == Uri.UriSchemeHttps && url.Segments.Length >= 3)
+        {
+            RepoUrl = new Uri(url, string.Concat(url.Segments.Take(3))).AbsoluteUri.TrimEnd('/');
+        }
 
-    [JsonIgnore]
-    public string? RepoUrl => string.IsNullOrEmpty(RepoOwner) || string.IsNullOrEmpty(RepoName)
-        ? null : $"https://github.com/{RepoOwner}/{RepoName}";
+        OnPropertyChanged(nameof(CanInstall));
+        OnPropertyChanged(nameof(CanStartInstall));
+        OnPropertyChanged(nameof(OptionalDependencies));
+        OnPropertyChanged(nameof(HasOptionalDependencies));
+        OnPropertyChanged(nameof(RepoUrl));
+    }
 
     // I just put AI tags in here so they can't be used as regular tags
     private static readonly HashSet<string> ReservedTags = new(StringComparer.OrdinalIgnoreCase)
-        { "ai-free", "ai-assisted", "vibecoded", "active", "inactive" };
+        { "self-written", "ai-assisted", "mostly-generated", "active", "inactive" };
 
     [JsonIgnore]
     public List<ModTag> _Tags { get; private set; } = []; // TODO: please rename sensibly
+
+    public string TagSummary => string.Join(", ", _Tags.Select(tag => tag.Text));
 
     public void RebuildTags()
     {
@@ -70,9 +79,9 @@ public partial class OnlineModInfo : ModInfo
         // AI badge
         switch ((Ai ?? "").Trim().ToLowerInvariant())
         {
-            case "ai-free": list.Add(new ModTag(loc["AiFree"])); break;
+            case "self-written": list.Add(new ModTag(loc["AiFree"])); break;
             case "ai-assisted": list.Add(new ModTag(loc["AiAssisted"], IsAssisted: true)); break;
-            case "vibecoded": list.Add(new ModTag(loc["AiVibecoded"], IsVibecoded: true)); break;
+            case "mostly-generated": list.Add(new ModTag(loc["AiVibecoded"], IsVibecoded: true)); break;
         }
 
         switch ((Development ?? "").Trim().ToLowerInvariant())
@@ -94,6 +103,7 @@ public partial class OnlineModInfo : ModInfo
 
         _Tags = list;
         OnPropertyChanged(nameof(_Tags));
+        OnPropertyChanged(nameof(TagSummary));
     }
 
     [JsonIgnore]
@@ -103,18 +113,16 @@ public partial class OnlineModInfo : ModInfo
     public Task? ChangelogTask { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PublishedText))]
+    public partial DateTime? PublishedAt { get; set; }
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DownloadsText))]
     public partial long Downloads { get; set; }
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(UpdatedText))]
-    public partial DateTime? LastUpdated { get; set; }
-
-    [JsonIgnore]
     public string DownloadsText => string.Format(LocalizationService.Instance["DownloadsFormat"], Downloads);
 
-    [JsonIgnore]
-    public string UpdatedText => LastUpdated is DateTime updated ? Ago(updated) : "";
+    public string PublishedText => PublishedAt is DateTime published ? Ago(published) : "";
 
     private static string Ago(DateTime updated)
     {
@@ -130,7 +138,7 @@ public partial class OnlineModInfo : ModInfo
     }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowInstalledState), nameof(ShowUpdateState), nameof(ShowNoState))]
+    [NotifyPropertyChangedFor(nameof(ShowInstalledState), nameof(ShowUpdateState), nameof(ShowNoState), nameof(CanStartInstall))]
     public partial bool IsInstalling { get; set; }
 
     [ObservableProperty]

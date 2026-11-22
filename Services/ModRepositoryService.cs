@@ -5,8 +5,7 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
@@ -15,14 +14,32 @@ using Avalonia.Platform;
 
 namespace StellarModManager.Services;
 
-public partial class ModRepositoryService
+public class ModRepositoryService
 {
-    private readonly HttpClient _httpClient = new();
-    private readonly SemaphoreSlim _commitSlots = new(4);
+    private const int PageSize = 50;
+    private readonly HttpClient _httpClient;
+    private readonly Uri _origin;
+    private readonly SemaphoreSlim _hashLookups = new(4);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashMatch> _hashMatches = new();
 
-    public ModRepositoryService()
+    public ModRepositoryService() : this(new HttpClient(), ConfiguredOrigin()) { }
+
+    internal ModRepositoryService(HttpClient httpClient, Uri origin)
     {
+        _httpClient = httpClient;
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("StellarModManager");
+        _origin = origin;
+    }
+
+    private static Uri ConfiguredOrigin()
+    {
+        var origin = typeof(ModRepositoryService).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => attribute.Key == "StellarModsApiOrigin")?.Value;
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var configured) || configured.Scheme != Uri.UriSchemeHttps ||
+            configured.UserInfo.Length > 0 || configured.AbsolutePath != "/" || configured.Query.Length > 0 ||
+            configured.Fragment.Length > 0)
+            throw new InvalidOperationException("Configure StellarModsApiOrigin as an HTTPS origin.");
+        return configured;
     }
 
     private static readonly string[] DefaultThumbnailAssets =
@@ -35,7 +52,7 @@ public partial class ModRepositoryService
         "avares://StellarModManager/Assets/Thumbnails/smileyWhat.png"
     };
 
-    private static Bitmap LoadDefaultThumbnail(OnlineModInfo mod)
+    private static Bitmap LoadDefaultThumbnail()
     {
         int index = Random.Shared.Next(DefaultThumbnailAssets.Length);
 
@@ -44,136 +61,152 @@ public partial class ModRepositoryService
         return Bitmap.DecodeToWidth(stream, 192);
     }
 
-    // The catalogue host sends Cache-Control: no-cache. raw.githubusercontent.com ignores a query string.
-    private static string NoCache(string url) => $"{url}?t={DateTime.UtcNow.Ticks}";
-
-    public async Task<ModListResult> GetModsAsync(string url)
+    internal async Task<CatalogPage> GetPageAsync(int page, int pageSize, string keyword, int sortIndex,
+        CancellationToken cancellationToken = default)
     {
-        string json = await _httpClient.GetStringAsync(NoCache(url));
-
-        RepositoryResponse? response = JsonSerializer.Deserialize<RepositoryResponse>(json);
-        var result = new ModListResult();
-
-        if (response == null)
-            return result;
-
-        //load every mod at once, to speed up request
-        OnlineModInfo?[] mods = await Task.WhenAll(response.Mods.Select(entry => LoadModAsync(entry, result)));
-        result.Mods.AddRange(mods.OfType<OnlineModInfo>());
-        return result;
+        ArgumentOutOfRangeException.ThrowIfLessThan(page, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(pageSize, 1);
+        var sort = sortIndex switch { 1 => "Name", 2 => "Downloads", _ => "ReleaseTime" };
+        var order = sortIndex == 1 ? "ascending" : "descending";
+        var query = $"keyword={Uri.EscapeDataString(keyword.Trim())}&sort={sort}&sort_order={order}";
+        var apiPageSize = Math.Min(pageSize, PageSize);
+        var offset = (page - 1L) * pageSize;
+        var cursor = offset;
+        var mods = new Dictionary<Guid, OnlineModInfo>();
+        int totalCount;
+        do
+        {
+            var apiPage = cursor / apiPageSize + 1;
+            var result = await ReadAsync<SubmissionPage>(
+                $"/api/submissions?page={apiPage}&page_size={apiPageSize}&{query}", cancellationToken);
+            totalCount = result.TotalCount;
+            var skip = (int)(cursor % apiPageSize);
+            var take = (int)Math.Min(pageSize - (cursor - offset), Math.Max(0, result.Items.Count - skip));
+            foreach (var item in result.Items.Skip(skip).Take(take))
+                if (item.Type is "mod" or "plugin")
+                    mods.TryAdd(item.Uuid, item.ToOnline());
+            if (take == 0)
+                break;
+            cursor += take;
+        }
+        while (cursor < offset + pageSize && cursor < totalCount);
+        return new CatalogPage(mods.Values.ToList(), page, pageSize, totalCount);
     }
 
-    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._-]*$")]
-    private static partial Regex GitHubName();
-    
-    [GeneratedRegex(@"^([A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*)?$")]
-    private static partial Regex RepoPath();
-
-    private static bool IsSafe(ModRegistryEntry entry)
+    internal async Task<OnlineModInfo?> GetSubmissionAsync(Guid uuid, CancellationToken cancellationToken = default)
     {
-        return GitHubName().IsMatch(entry.Author) && GitHubName().IsMatch(entry.Repo) && RepoPath().IsMatch(entry.MetadataPath);
-    }
-
-    private async Task<OnlineModInfo?> LoadModAsync(ModRegistryEntry entry, ModListResult result)
-    {
-        if (!IsSafe(entry))
+        using var response = await _httpClient.GetAsync(new Uri(_origin, $"/api/submissions/{uuid}"), cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             return null;
+        response.EnsureSuccessStatusCode();
+        var submission = await response.Content.ReadFromJsonAsync<Submission>(cancellationToken);
+        return submission is { Type: "mod" or "plugin" } ? submission.ToOnline() : null;
+    }
 
+    internal async Task<(List<OnlineModInfo> ToInstall, List<string> Missing)> ResolveInstallAsync(
+        OnlineModInfo root, IEnumerable<InstalledModInfo> installed)
+    {
+        var installedById = installed.ToDictionary(mod => mod.Id, StringComparer.OrdinalIgnoreCase);
+        var available = new Dictionary<string, OnlineModInfo>(StringComparer.OrdinalIgnoreCase) { [root.Id] = root };
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { root.Id };
+        var pending = new Stack<ModInfo>();
+        pending.Push(root);
+        while (pending.TryPop(out var mod))
+        {
+            foreach (var id in mod.Needs ?? [])
+            {
+                if (!visited.Add(id))
+                    continue;
+                if (installedById.TryGetValue(id, out var existing))
+                {
+                    pending.Push(existing);
+                    continue;
+                }
+                if (!Guid.TryParse(id, out var uuid))
+                    continue;
+                var dependency = await GetSubmissionAsync(uuid);
+                if (dependency is not { CanInstall: true })
+                    continue;
+                available[id] = dependency;
+                pending.Push(dependency);
+            }
+        }
+        var result = DependencyResolver.ResolveInstall(root, installedById.Values, id => available.GetValueOrDefault(id));
+        return (result.ToInstall.Cast<OnlineModInfo>().ToList(), result.Missing);
+    }
+
+    internal void ClearHashMatches() => _hashMatches.Clear();
+
+    internal async Task<(Submission Submission, CatalogRelease Release)?> IdentifyAsync(string sha256, CancellationToken cancellationToken)
+    {
+        if (!_hashMatches.TryGetValue(sha256, out var match))
+        {
+            await _hashLookups.WaitAsync(cancellationToken);
+            try
+            {
+                if (!_hashMatches.TryGetValue(sha256, out match))
+                {
+                    var result = await ReadAsync<SubmissionPage>($"/api/submissions?sha256={sha256}&page_size=2", cancellationToken);
+                    match = new HashMatch(result.TotalCount == 1 ? result.Items.SingleOrDefault() : null);
+                    _hashMatches[sha256] = match;
+                }
+            }
+            finally
+            {
+                _hashLookups.Release();
+            }
+        }
+        return match.Submission?.MatchedRelease is { } release ? (match.Submission, release) : null;
+    }
+
+    internal async Task LogDownloadAsync(Guid submissionUuid, Guid releaseUuid)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try
         {
-            string commit = await LatestCommitAsync(entry.Author, entry.Repo);
-            string metadataUrl = GithubFiles.RawFile(entry.Author, entry.Repo, commit, entry.MetadataPath, "mod.json");
-
-            string modJson = await _httpClient.GetStringAsync(metadataUrl);
-
-            OnlineModInfo? mod = JsonSerializer.Deserialize<OnlineModInfo>(modJson);
-
-            if (mod == null)
-            {
-                result.AddFailure(entry.Author, entry.Repo);
-                return null;
-            }
-
-            mod.RepoOwner = entry.Author;
-            mod.RepoName = entry.Repo;
-
-            if (!string.IsNullOrWhiteSpace(entry.Ai))
-            {
-                mod.Ai = entry.Ai; // Override from mods list wins
-            }
-            mod.RebuildTags();
-
-            mod.DownloadUrl = $"https://github.com/{entry.Author}/{entry.Repo}/releases/download/v{mod.Version}/{entry.Repo}.zip";
-
-            // grab every image with thumbnail at the same time
-            string ToUrl(string path) => GithubFiles.RawFile(entry.Author, entry.Repo, commit, entry.MetadataPath, path);
-
-            if (!string.IsNullOrWhiteSpace(mod.Thumbnail))
-            {
-                mod.ThumbnailUrl = ToUrl(mod.Thumbnail);
-            }
-
-            mod.ImageUrls = mod.Images
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Select(ToUrl)
-                .ToList();
-
-            return mod;
+            using var response = await _httpClient.PostAsync(
+                new Uri(_origin, $"/api/submissions/{submissionUuid}/releases/{releaseUuid}/downloads"),
+                null, timeout.Token);
+            response.EnsureSuccessStatusCode();
         }
-        catch (Exception ex)
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException)
         {
-            result.AddFailure(entry.Author, entry.Repo);
-            Console.WriteLine($"Failed to load mod from {entry.Repo}: {ex.Message}");
-            return null;
+            System.Diagnostics.Trace.WriteLine($"Download reporting failed for {releaseUuid}: {exception.Message}");
         }
     }
 
-    private async Task<string> LatestCommitAsync(string owner, string repo)
-    {
-        await _commitSlots.WaitAsync();
-        try
-        {
-            string atom = await _httpClient.GetStringAsync($"https://github.com/{owner}/{repo}/commits/main.atom");
-            string? commit = GithubFiles.CommitFromAtom(atom);
+    private sealed record HashMatch(Submission? Submission);
 
-            return commit ?? throw new InvalidOperationException($"No commit for {owner}/{repo}");
-        }
-        finally
-        {
-            _commitSlots.Release();
-        }
-    }
+    private async Task<T> ReadAsync<T>(string path, CancellationToken cancellationToken = default) where T : class =>
+        await _httpClient.GetFromJsonAsync<T>(new Uri(_origin, path), cancellationToken)
+        ?? throw new InvalidDataException("The catalog returned an empty response.");
 
-    // reuse request instead of always starting a new one
-    public Task LoadChangelogAsync(OnlineModInfo mod)
-    {
-        if (mod.ChangelogTask == null)
-            mod.ChangelogTask = FetchChangelogAsync(mod);
+    public Task LoadChangelogAsync(OnlineModInfo mod) =>
+        mod.ChangelogTask ??= FetchChangelogAsync(mod, mod.ChangelogRevision);
 
-        return mod.ChangelogTask;
-    }
-
-    private async Task FetchChangelogAsync(OnlineModInfo mod)
+    private async Task FetchChangelogAsync(OnlineModInfo mod, (Guid?, string?, string?, string?) revision)
     {
         try
         {
-            var releases = await _httpClient.GetFromJsonAsync<List<GitHubRelease>>(
-                $"https://api.github.com/repos/{mod.RepoOwner}/{mod.RepoName}/releases?per_page=30") ?? new();
-
-            mod.Downloads = releases.Sum(release => release.assets?.Sum(asset => asset.download_count) ?? 0);
-            mod.LastUpdated = releases.Max(release => release.published_at);
-
-            foreach (var release in releases)
+            var entries = new List<ChangelogEntry>();
+            for (var page = 1; ; page++)
             {
-                if (Version.TryParse(release.tag_name.TrimStart('v'), out var version))
-                    mod.Changelog.Add(new ChangelogEntry(version, release.body ?? ""));
+                var result = await ReadAsync<ReleasePage>($"/api/submissions/{mod.Id}/releases?page={page}&page_size={PageSize}");
+                entries.AddRange(result.Items.Select(release => new ChangelogEntry(release.Uuid, release.Version, release.Changelog)));
+                if (result.Items.Count == 0 || page * (long)result.PageSize >= result.TotalCount)
+                    break;
+            }
+            if (revision == mod.ChangelogRevision)
+            {
+                mod.Changelog.Clear();
+                foreach (var entry in entries)
+                    mod.Changelog.Add(entry);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or InvalidDataException)
         {
-            // for retrying the changelog fetch later
-            mod.ChangelogTask = null;
-            Console.WriteLine($"Changelog failed for {mod.Name}: {ex.Message}");
+            if (revision == mod.ChangelogRevision)
+                mod.ChangelogTask = null;
         }
     }
 
@@ -210,7 +243,7 @@ public partial class ModRepositoryService
 
         if (string.IsNullOrWhiteSpace(mod.ThumbnailUrl))
         {
-            mod.ThumbnailImage = LoadDefaultThumbnail(mod);
+            mod.ThumbnailImage = LoadDefaultThumbnail();
             return;
         }
 
@@ -225,7 +258,7 @@ public partial class ModRepositoryService
         {
             Console.WriteLine($"Thumbnail loading failed for {mod.Name}: {ex.Message}");
 
-            mod.ThumbnailImage = LoadDefaultThumbnail(mod);
+            mod.ThumbnailImage = LoadDefaultThumbnail();
         }
     }
 
@@ -257,9 +290,4 @@ public partial class ModRepositoryService
         }
     }
 
-    private class RepositoryResponse
-    {
-        [JsonPropertyName("mods")]
-        public List<ModRegistryEntry> Mods { get; set; } = [];
-    }
 }

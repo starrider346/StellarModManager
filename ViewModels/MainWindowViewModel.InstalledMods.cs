@@ -7,6 +7,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace StellarModManager.ViewModels;
@@ -18,8 +21,13 @@ public partial class MainWindowViewModel
     public ObservableCollection<InstalledModInfo> AvailableModUpdates { get; } = [];
     private HashSet<string> _managedModPaths = new(ProfileFiles.PathComparer);
 
+    private CancellationTokenSource? _externalIdentification;
     private InstalledModInfo? _modPendingRemoval;
     private OnlineModInfo? _modPendingInstall;
+    private TaskCompletionSource<bool>? _replacementConfirmation;
+
+    [ObservableProperty] public partial bool IsConfirmReplacementOpen { get; set; }
+    [ObservableProperty] public partial string ConfirmReplacementMessage { get; set; } = "";
 
     [ObservableProperty] public partial bool IsConfirmRemoveOpen { get; set; }
     [ObservableProperty] public partial string ConfirmRemoveTitle { get; set; } = "";
@@ -28,22 +36,31 @@ public partial class MainWindowViewModel
     [ObservableProperty] public partial bool IsConfirmDependenciesOpen { get; set; }
     [ObservableProperty] public partial string ConfirmDependenciesMessage { get; set; } = "";
 
-    private void ShowInstalledMods(List<ProfileMod> mods)
+    private void ShowInstalledMods(List<ManagedInstall> mods)
     {
         var updatesId = UpdatesSelection?.Id;
-        _managedModPaths = mods.SelectMany(mod => mod.Files).ToHashSet(ProfileFiles.PathComparer);
+        _managedModPaths = mods.Select(mod => mod.RelativePath).ToHashSet(ProfileFiles.PathComparer);
         InstalledMods.Clear();
         foreach (var installed in mods)
-            InstalledMods.Add(installed.Mod);
+            InstalledMods.Add(installed.ToModInfo());
         ShowLibraryMods();
         RefreshUpdateStatuses(updatesId);
+        _ = RefreshInstalledCatalogAsync();
     }
 
     [RelayCommand]
     private void RefreshLibrary()
     {
-        if (!IsModOperationInProgress)
-            ShowLibraryMods();
+        if (IsModOperationInProgress || _profileStore == null)
+            return;
+        try
+        {
+            ShowProfileState(_profileStore.Read());
+        }
+        catch (Exception ex)
+        {
+            ReportError("StatusProfileOpenFailed", ex.Message);
+        }
     }
 
     private void ShowLibraryMods()
@@ -59,6 +76,33 @@ public partial class MainWindowViewModel
             mod.IsExternal == selection.IsExternal && (mod.IsExternal
                 ? ProfileFiles.PathComparer.Equals(mod.Id, selection.Id)
                 : SameId(mod.Id, selection.Id)));
+
+        _externalIdentification?.Cancel();
+        _externalIdentification?.Dispose();
+        _externalIdentification = new CancellationTokenSource();
+        _ = IdentifyExternalModsAsync(external, GamePath, _externalIdentification.Token);
+    }
+
+    private async Task IdentifyExternalModsAsync(IEnumerable<InstalledModInfo> mods, string gamePath, CancellationToken cancellationToken)
+    {
+        foreach (var mod in mods)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return;
+            try
+            {
+                var path = ProfileFiles.Resolve(gamePath, mod.ExternalPath!);
+                var hash = await Task.Run(() => ModInstallerService.HashFile(path), cancellationToken);
+                var match = await _repositoryService.IdentifyAsync(hash, cancellationToken);
+                if (!cancellationToken.IsCancellationRequested && match is { } recognized)
+                    mod.CatalogMatch = $"{recognized.Submission.Name} ({recognized.Release.Version})";
+            }
+            catch (OperationCanceledException) { return; }
+            catch (HttpRequestException) { return; }
+            catch (JsonException) { return; }
+            catch (UnauthorizedAccessException) { }
+            catch (IOException) { }
+        }
     }
 
     private static bool SameId(string id, string? other) =>
@@ -77,19 +121,16 @@ public partial class MainWindowViewModel
         {
             installed.Online = OnlineMods.FirstOrDefault(m => SameId(m.Id, installed.Id));
             var online = installed.Online;
-            var latest = online?.Version;
-            var cached = _packages.Find(installed.Id);
-            if (cached != null && IsNewer(cached.Mod.Version, latest))
-                latest = cached.Mod.Version;
-
-            installed.IsUpdateAvailable = IsNewer(latest, installed.Version);
-            installed.LatestVersion = installed.IsUpdateAvailable ? latest : null;
+            var latest = online?.Release;
+            installed.IsUpdateAvailable = latest is { IsInstallable: true } &&
+                (latest.Uuid.CompareTo(installed.ReleaseUuid) > 0 ||
+                 latest.Uuid == installed.ReleaseUuid && !string.Equals(latest.Sha256, installed.Sha256, StringComparison.OrdinalIgnoreCase));
+            installed.LatestVersion = installed.IsUpdateAvailable ? latest?.Version : null;
             installed.UpdateNotes = null;
             if (online != null && installed.IsUpdateAvailable)
             {
                 online.HasUpdate = true;
-                if (Version.TryParse(installed.Version, out var installedVersion))
-                    _ = LoadUpdateNotesAsync(installed, online, installedVersion);
+                _ = LoadUpdateNotesAsync(installed, online);
             }
         }
 
@@ -101,16 +142,13 @@ public partial class MainWindowViewModel
         ShowDetails();
     }
 
-    private static bool IsNewer(string? candidate, string? current) =>
-        Version.TryParse(candidate, out var candidateVersion) &&
-        (!Version.TryParse(current, out var currentVersion) || candidateVersion > currentVersion);
-
-    private async Task LoadUpdateNotesAsync(InstalledModInfo installed, OnlineModInfo online, Version installedVersion)
+    private async Task LoadUpdateNotesAsync(InstalledModInfo installed, OnlineModInfo online)
     {
         await _repositoryService.LoadChangelogAsync(online);
         installed.UpdateNotes = string.Join("\n\n", online.Changelog
-            .Where(e => e.Version > installedVersion)
-            .Select(e => $"v{e.Version}\n{e.Notes}"));
+            .Where(entry => entry.ReleaseId.CompareTo(installed.ReleaseUuid) > 0 ||
+                entry.ReleaseId == installed.ReleaseUuid && online.Release?.Uuid == installed.ReleaseUuid)
+            .Select(entry => $"{entry.Version}\n{entry.Notes}"));
     }
 
     private void RefreshDependencyStatuses()
@@ -126,22 +164,18 @@ public partial class MainWindowViewModel
 
     private string DisplayNameFor(string id) => OnlineMods.FirstOrDefault(m => SameId(m.Id, id))?.Name ?? id;
 
-    private ModInfo? FindAvailableMod(string id)
-    {
-        var online = OnlineMods.FirstOrDefault(m => SameId(m.Id, id));
-        return (ModInfo?)online ?? _packages.Find(id)?.Mod;
-    }
-
     [RelayCommand]
     private Task InstallMod(OnlineModInfo mod) => InstallModAsync(mod, dependenciesConfirmed: false);
 
     private async Task InstallModAsync(OnlineModInfo mod, bool dependenciesConfirmed)
     {
-        if (!TryBeginModOperation())
+        if (!mod.CanInstall || !TryBeginModOperation())
             return;
         try
         {
-            var (dependencies, missing) = DependencyResolver.ResolveInstall(mod, InstalledMods, FindAvailableMod);
+            var (dependencies, missing) = await _repositoryService.ResolveInstallAsync(mod, InstalledMods);
+            foreach (var dependency in dependencies)
+                RegisterOnlineMod(dependency);
             if (missing.Count > 0)
             {
                 ReportError("StatusDependencyNotInList", mod.Name, string.Join(", ", missing.Select(DisplayNameFor)));
@@ -157,20 +191,13 @@ public partial class MainWindowViewModel
                 return;
             }
 
-            var store = _profileStore!;
-            var active = ActiveProfile!.Id;
-            var install = new List<ModPackage>();
-            foreach (var dependency in dependencies)
-                install.Add(await GetInstallPackage(dependency));
-            install.Add(await GetInstallPackage(mod));
-
-            mod.IsInstalling = true;
-            ShowProfileState(await Task.Run(() => store.ChangeInstalledMods(active, install)));
+            await DeployModsAsync(dependencies.Cast<OnlineModInfo>().Append(mod));
             if (dependencies.Count == 0)
                 ReportSuccess("StatusInstalled", mod.Name);
             else
                 ReportSuccess("StatusInstalledWithDependencies", mod.Name, names);
         }
+        catch (ExternalModReplacementCancelledException) { }
         catch (Exception ex)
         {
             ReportError("StatusInstallFailed", ex.Message);
@@ -182,26 +209,70 @@ public partial class MainWindowViewModel
         }
     }
 
-    private async Task<ModPackage> GetInstallPackage(ModInfo mod)
+    private async Task DeployModsAsync(IEnumerable<OnlineModInfo> mods, IProgress<double>? updateProgress = null)
     {
-        if (mod is not OnlineModInfo online)
+        var store = _profileStore!;
+        var active = ActiveProfile!.Id;
+        using var installer = new ModInstallerService();
+        var staged = new List<StagedMod>();
+        foreach (var mod in mods)
         {
-            return _packages.Find(mod.Id, mod.Version)
-                ?? throw new FileNotFoundException($"No cached package was found for {mod.Name}.");
-        }
+            var install = ModInstallerService.Describe(mod);
+            string? approvedExternalHash = null;
+            try
+            {
+                if (await Task.Run(() => store.CanReuse(active, install)))
+                {
+                    staged.Add(new StagedMod(install, null));
+                    continue;
+                }
+            }
+            catch (ExternalModConflictException conflict)
+            {
+                ConfirmReplacementMessage = LocalizationService.Instance.Format(
+                    "ConfirmReplacementMessage", conflict.RelativePath, mod.Name);
+                _replacementConfirmation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                IsConfirmReplacementOpen = true;
+                try
+                {
+                    if (!await _replacementConfirmation.Task)
+                        throw new ExternalModReplacementCancelledException();
+                    approvedExternalHash = conflict.Sha256;
+                }
+                finally
+                {
+                    IsConfirmReplacementOpen = false;
+                    _replacementConfirmation = null;
+                }
+            }
 
-        online.IsInstalling = true;
-        online.DownloadProgress = 0;
-        try
-        {
-            var progress = new Progress<double>(pct => online.DownloadProgress = pct);
-            return await _packages.GetAsync(online, _repositoryService, progress);
+            mod.IsInstalling = true;
+            mod.DownloadProgress = 0;
+            try
+            {
+                var progress = new Progress<double>(pct =>
+                {
+                    mod.DownloadProgress = pct;
+                    updateProgress?.Report(pct);
+                });
+                var package = await installer.StageAsync(install, _repositoryService, progress);
+                staged.Add(package with { ApprovedExternalHash = approvedExternalHash });
+            }
+            finally
+            {
+                mod.IsInstalling = false;
+            }
         }
-        finally
-        {
-            online.IsInstalling = false;
-        }
+        ShowProfileState(await Task.Run(() => store.ChangeInstalledMods(active, staged)));
     }
+
+    private sealed class ExternalModReplacementCancelledException : OperationCanceledException { }
+
+    [RelayCommand]
+    private void ConfirmReplacement() => _replacementConfirmation?.TrySetResult(true);
+
+    [RelayCommand]
+    private void CancelReplacement() => _replacementConfirmation?.TrySetResult(false);
 
     [RelayCommand]
     private async Task ConfirmDependencies()
@@ -281,7 +352,7 @@ public partial class MainWindowViewModel
         {
             var store = _profileStore!;
             var active = ActiveProfile!.Id;
-            ShowProfileState(await Task.Run(() => store.ChangeInstalledMods(active, [], mod.Id)));
+            ShowProfileState(await Task.Run(() => store.ChangeInstalledMods(active, [], Guid.Parse(mod.Id))));
             ReportSuccess("StatusRemoved", mod.Name);
         }
         catch (Exception ex)
@@ -320,25 +391,27 @@ public partial class MainWindowViewModel
         mod.UpdateProgress = 0;
         try
         {
-            var package = _packages.Find(mod.Id, version);
-            if (package == null)
+            if (await _repositoryService.GetSubmissionAsync(Guid.Parse(mod.Id)) is not { CanInstall: true } online)
             {
-                var online = OnlineMods.FirstOrDefault(m => SameId(m.Id, mod.Id) && m.Version == version);
-                if (online == null)
-                {
-                    ReportError("StatusNotInRepository");
-                    return;
-                }
-
-                var progress = new Progress<double>(pct => mod.UpdateProgress = pct);
-                package = await _packages.GetAsync(online, _repositoryService, progress);
+                ReportError("StatusNotInRepository");
+                return;
             }
 
-            var store = _profileStore!;
-            var active = ActiveProfile!.Id;
-            ShowProfileState(await Task.Run(() => store.ChangeInstalledMods(active, new[] { package })));
+            RegisterOnlineMod(online);
+            var (dependencies, missing) = await _repositoryService.ResolveInstallAsync(online, InstalledMods);
+            foreach (var dependency in dependencies)
+                RegisterOnlineMod(dependency);
+            if (missing.Count > 0)
+            {
+                ReportError("StatusDependencyNotInList", mod.Name, string.Join(", ", missing.Select(DisplayNameFor)));
+                return;
+            }
+
+            var progress = new Progress<double>(pct => mod.UpdateProgress = pct);
+            await DeployModsAsync(dependencies.Cast<OnlineModInfo>().Append(online), progress);
             ReportSuccess("StatusUpdated", mod.Name, version);
         }
+        catch (ExternalModReplacementCancelledException) { }
         catch (Exception ex)
         {
             ReportError("StatusUpdateFailed", ex.Message);

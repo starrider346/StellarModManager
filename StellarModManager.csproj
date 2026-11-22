@@ -10,10 +10,12 @@
 		<AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
 		<ApplicationIcon>Assets\icon.ico</ApplicationIcon>
 		<Version>2.5.0</Version>
+		<StellarModsApiOrigin Condition="'$(StellarModsApiOrigin)' == ''">https://localhost:3000</StellarModsApiOrigin>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<AvaloniaResource Include="Assets\**" />
+		<AssemblyMetadata Include="StellarModsApiOrigin" Value="$(StellarModsApiOrigin)" />
 	</ItemGroup>
 
 	<ItemGroup>

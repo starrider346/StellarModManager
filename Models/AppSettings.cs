@@ -10,6 +10,7 @@ public class AppSettings
     public bool AutoCheckForAppUpdates { get; set; } = true;
     public string Theme { get; set; } = "Purple";
     public int ModSort { get; set; }
+    public int? CatalogSort { get; set; }
     public bool CompactModList { get; set; }
     public bool AutoDeployDependencies { get; set; } = false;
 }

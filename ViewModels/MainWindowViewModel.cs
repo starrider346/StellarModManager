@@ -26,7 +26,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private readonly SettingsService _settingsService = new();
 
-    public MainWindowViewModel()
+    internal MainWindowViewModel(ModRepositoryService repository)
+    {
+        _repositoryService = repository;
+    }
+
+    public MainWindowViewModel() : this(new ModRepositoryService())
     {
         LoadAvailableThemes();
         LoadAvailableLanguages();
@@ -38,7 +43,7 @@ public partial class MainWindowViewModel : ViewModelBase
         AutoDeployDependencies = appSettings.AutoDeployDependencies;
         AutoCheckForModUpdates = appSettings.AutoCheckForModUpdates;
         AutoCheckForAppUpdates = appSettings.AutoCheckForAppUpdates;
-        SortIndex = appSettings.ModSort;
+        SortIndex = appSettings.CatalogSort ?? (appSettings.ModSort == 2 ? 1 : 0);
         IsCompactView = appSettings.CompactModList;
 
         _themeService.ApplyTheme(_themeService.LoadTheme(SelectedTheme));
@@ -52,9 +57,14 @@ public partial class MainWindowViewModel : ViewModelBase
         _statusTimer.Tick += (_, _) => DismissStatus();
 
         // Rebuild the dependency tooltips when the language changes
-        LocalizationService.Instance.LanguageChanged += (_, _) => RefreshDependencyStatuses();
+        LocalizationService.Instance.LanguageChanged += (_, _) =>
+        {
+            foreach (var mod in OnlineMods)
+                mod.RefreshLocalizedText();
+            RefreshDependencyStatuses();
+            OnPropertyChanged(nameof(BrowsePageStatus));
+        };
 
-        _updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(30) };
         _updateCheckTimer.Tick += async (_, _) => await RefreshMods();
 
         var profile = _settingsService.LoadGameProfile();

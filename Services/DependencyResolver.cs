@@ -19,7 +19,7 @@ public static class DependencyResolver
 
         void Visit(ModInfo mod)
         {
-            foreach (var raw in NeedsOf(mod))
+            foreach (var raw in (mod.Needs ?? []))
             {
                 var id = raw?.Trim();
                 if (string.IsNullOrEmpty(id) || !seen.Add(id))
@@ -44,20 +44,12 @@ public static class DependencyResolver
         }
     }
 
-    private static List<string> NeedsOf(ModInfo mod)
-    {
-        if (mod.Needs is { Count: > 0 })
-            return mod.Needs;
-
-        return (mod as InstalledModInfo)?.Online?.Needs ?? [];
-    }
-
     // Installed mods that have needs
     public static List<InstalledModInfo> FindDependents(InstalledModInfo target, IEnumerable<InstalledModInfo> installed)
     {
         return installed
             .Where(mod => !mod.Id.Equals(target.Id, StringComparison.OrdinalIgnoreCase))
-            .Where(mod => NeedsOf(mod).Any(need => (need ?? "").Trim().Equals(target.Id, StringComparison.OrdinalIgnoreCase)))
+            .Where(mod => (mod.Needs ?? []).Any(need => (need ?? "").Trim().Equals(target.Id, StringComparison.OrdinalIgnoreCase)))
             .ToList();
     }
 }

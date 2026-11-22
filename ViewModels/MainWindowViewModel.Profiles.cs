@@ -17,9 +17,8 @@ namespace StellarModManager.ViewModels;
 
 public partial class MainWindowViewModel
 {
-    private sealed record ProfileFile(string Name, List<string> DeployedModIds);
+    private sealed record ProfileFile(int SchemaVersion, string Name, List<Guid> SubmissionUuids);
 
-    private readonly ModPackageCache _packages = new(AppContext.BaseDirectory);
     private ModProfileStore? _profileStore;
     private ModProfile? _profilePendingDeletion;
 
@@ -45,7 +44,7 @@ public partial class MainWindowViewModel
     {
         try
         {
-            var store = new ModProfileStore(AppContext.BaseDirectory, gamePath, _packages);
+            var store = new ModProfileStore(AppContext.BaseDirectory, gamePath, AppPaths.ProfilesRoot);
             var state = store.Open(legacyGamePath);
             _profileStore = store;
             ShowProfileState(state);
@@ -164,12 +163,43 @@ public partial class MainWindowViewModel
             var store = _profileStore!;
             var active = ActiveProfile!.Id;
             var gamePath = GamePath;
-            var (state, missing) = await Task.Run(() => store.Switch(active, target, clone, deleteActive, CheckGameStopped));
+            var pending = ModProfiles.FirstOrDefault(profile => profile.Id == target)?.PendingSubmissionIds.ToArray() ?? [];
+            using var installer = new ModInstallerService();
+            var staged = new List<StagedMod>();
+            if (pending.Length > 0)
+            {
+                var missing = new List<string>();
+                var wanted = new Dictionary<string, OnlineModInfo>();
+                foreach (var id in pending)
+                {
+                    var root = await _repositoryService.GetSubmissionAsync(id);
+                    if (root is not { CanInstall: true })
+                    {
+                        missing.Add(id.ToString());
+                        continue;
+                    }
+                    RegisterOnlineMod(root);
+                    var (dependencies, unavailable) = await _repositoryService.ResolveInstallAsync(root, []);
+                    missing.AddRange(unavailable);
+                    foreach (var online in dependencies.Append(root))
+                    {
+                        RegisterOnlineMod(online);
+                        wanted.TryAdd(online.Id, online);
+                    }
+                }
+
+                if (missing.Count > 0)
+                {
+                    ReportError("StatusProfileMissingPackages", string.Join(", ", missing.Distinct()
+                        .Select(DisplayNameFor)));
+                    return false;
+                }
+                foreach (var mod in wanted.Values)
+                    staged.Add(await installer.StageAsync(ModInstallerService.Describe(mod), _repositoryService, null));
+            }
+            var state = await Task.Run(() => store.Switch(active, target, clone, deleteActive, staged, pending, CheckGameStopped));
             ShowProfileState(state);
-            if (missing.Count > 0)
-                ReportError("StatusProfileMissingPackages", string.Join(", ", missing));
-            else
-                ReportSuccess("StatusProfileSwitched", ActiveProfileName);
+            ReportSuccess("StatusProfileSwitched", ActiveProfileName);
             return true;
 
             void CheckGameStopped()
@@ -260,7 +290,7 @@ public partial class MainWindowViewModel
 
         try
         {
-            var profile = new ProfileFile(ActiveProfileName, InstalledMods.Select(m => m.Id).ToList());
+            var profile = new ProfileFile(2, ActiveProfileName, InstalledMods.Select(m => Guid.Parse(m.Id)).ToList());
             var file = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title = LocalizationService.Instance["ProfileExport"],
@@ -307,14 +337,14 @@ public partial class MainWindowViewModel
 
             await using var stream = await files[0].OpenReadAsync();
             var imported = await JsonSerializer.DeserializeAsync<ProfileFile>(stream);
-            if (string.IsNullOrWhiteSpace(imported?.Name))
+            if (imported is not { SchemaVersion: 2, SubmissionUuids: not null } ||
+                imported.SubmissionUuids.Contains(Guid.Empty) || string.IsNullOrWhiteSpace(imported.Name))
                 throw new InvalidDataException(LocalizationService.Instance["StatusProfileInvalid"]);
 
             var profile = new ModProfile
             {
                 Name = imported.Name.Trim(),
-                DeployedModIds = (imported.DeployedModIds ?? [])
-                    .Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).ToList()
+                PendingSubmissionIds = imported.SubmissionUuids.Distinct().ToList()
             };
             var store = _profileStore!;
             var active = ActiveProfile!.Id;

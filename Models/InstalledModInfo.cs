@@ -1,12 +1,23 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+﻿using System;
+using CommunityToolkit.Mvvm.ComponentModel;
 using System.Text.Json.Serialization;
 
 namespace StellarModManager.Models;
 
 public partial class InstalledModInfo : ModInfo
 {
+    internal Guid ReleaseUuid { get; init; }
+    internal string Sha256 { get; init; } = "";
+    public SubmissionType Type { get; init; }
+
     [JsonIgnore]
     public string? ExternalPath { get; init; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCatalogMatch))]
+    public partial string? CatalogMatch { get; set; }
+
+    public bool HasCatalogMatch => CatalogMatch != null;
 
     [JsonIgnore]
     public bool IsExternal => ExternalPath != null;

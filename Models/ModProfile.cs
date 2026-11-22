@@ -9,7 +9,8 @@ public partial class ModProfile : ObservableObject
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid? SnapshotId { get; set; }
 
-    public List<string> DeployedModIds { get; set; } = [];
+    public bool LegacySnapshot { get; set; }
+    public List<Guid> PendingSubmissionIds { get; set; } = [];
 
     [ObservableProperty]
     public partial string Name { get; set; } = "";

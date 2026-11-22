@@ -8,7 +8,7 @@
              x:Class="StellarModManager.Views.OnlineModsView"
              x:DataType="vm:MainWindowViewModel">
 
-    <Grid RowDefinitions="Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
 
         <!-- Toolbar -->
         <Grid Grid.Row="0" Margin="0,0,0,12">
@@ -36,9 +36,9 @@
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" Margin="16,0,8,0">
                 <TextBlock Classes="columnHeader" Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SortLabel]}"/>
                 <ComboBox MinWidth="190" SelectedIndex="{Binding SortIndex}">
-                    <ComboBoxItem Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SortMostDownloaded]}"/>
-                    <ComboBoxItem Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SortRecentlyUpdated]}"/>
+                    <ComboBoxItem Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SortRecentlyPublished]}"/>
                     <ComboBoxItem Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SortName]}"/>
+                    <ComboBoxItem Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SortMostDownloaded]}"/>
                 </ComboBox>
             </StackPanel>
 
@@ -60,20 +60,28 @@
         <Grid Grid.Row="1" IsVisible="{Binding !IsCompactView}" ColumnDefinitions="60,*,70,80,110,120" Height="32" Margin="12,0">
             <TextBlock Grid.Column="1" Classes="columnHeader" Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ColumnName]}"/>
             <TextBlock Grid.Column="2" Classes="columnHeader" Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ColumnVersion]}"/>
-            <TextBlock Grid.Column="3" Classes="columnHeader" Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ColumnDownloads]}"/>
-            <TextBlock Grid.Column="4" Classes="columnHeader" Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ColumnUpdated]}"/>
+            <TextBlock Grid.Column="3" Classes="columnHeader"
+                       Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ColumnDownloads]}"
+                       ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[UniqueDownloadsTooltip]}"/>
+            <TextBlock Grid.Column="4" Classes="columnHeader" Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ColumnPublished]}"/>
             <TextBlock Grid.Column="5" Classes="columnHeader" Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ColumnState]}"/>
         </Grid>
         <Rectangle Grid.Row="1" Classes="separator" VerticalAlignment="Bottom" IsVisible="{Binding !IsCompactView}"/>
 
         <TextBlock Grid.Row="2" Classes="secondary" FontSize="14" Margin="12,16"
-                   IsVisible="{Binding !VisibleOnlineMods.Count}"
+                   IsVisible="{Binding HasNoBrowseResults}"
                    Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NoModsFound]}"/>
 
-        <ListBox Grid.Row="2" Classes="table" IsVisible="{Binding !IsCompactView}"
+        <ListBox x:Name="TableList" Grid.Row="2" Classes="table"
+                 BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Hidden" IsEnabled="{Binding !IsBrowseLoading}" IsVisible="{Binding !IsCompactView}"
                  Margin="0,4,0,0"
                  ItemsSource="{Binding VisibleOnlineMods}"
                  SelectedItem="{Binding BrowseSelection}">
+            <ListBox.Styles>
+                <Style Selector="ListBoxItem">
+                    <Setter Property="Height" Value="64"/>
+                </Style>
+            </ListBox.Styles>
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="models:OnlineModInfo">
                     <Grid>
@@ -115,8 +123,9 @@
                             </StackPanel>
 
                             <TextBlock Grid.Column="2" Classes="cell" Text="{Binding DisplayVersion}"/>
-                            <TextBlock Grid.Column="3" Classes="cell" Text="{Binding Downloads, StringFormat={}{0:N0}}"/>
-                            <TextBlock Grid.Column="4" Classes="cell" Text="{Binding UpdatedText}"/>
+                            <TextBlock Grid.Column="3" Classes="cell" Text="{Binding Downloads, StringFormat={}{0:N0}}"
+                                       ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[UniqueDownloadsTooltip]}"/>
+                            <TextBlock Grid.Column="4" Classes="cell" Text="{Binding PublishedText}"/>
 
                             <Panel Grid.Column="5" VerticalAlignment="Center">
                                 <TextBlock Classes="cell success" IsVisible="{Binding ShowInstalledState}"
@@ -137,18 +146,19 @@
             </ListBox.ItemTemplate>
         </ListBox>
         <!-- Compact view: card grid -->
-        <ListBox Grid.Row="2" Classes="cards" Margin="0,4,0,0"
+        <ListBox x:Name="CardList" Grid.Row="2" Classes="cards" IsEnabled="{Binding !IsBrowseLoading}"
+                 ScrollViewer.VerticalScrollBarVisibility="Hidden" Margin="0,4,0,0"
                  IsVisible="{Binding IsCompactView}"
                  ItemsSource="{Binding VisibleOnlineMods}"
                  SelectedItem="{Binding BrowseSelection}">
             <ListBox.ItemsPanel>
                 <ItemsPanelTemplate>
-                    <c:GridWrapPanel ItemWidth="225" />
+                    <c:GridWrapPanel ItemWidth="225" ItemHeight="{Binding CompactCardHeight}" />
                 </ItemsPanelTemplate>
             </ListBox.ItemsPanel>
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="models:OnlineModInfo">
-                    <Grid RowDefinitions="Auto,Auto">
+                    <Grid RowDefinitions="Auto,160">
 
                         <c:AspectRatio WidthParameter="16" HeightParameter="9">
                             <Border Classes="cardThumbnail">
@@ -162,7 +172,8 @@
                             <TextBlock Classes="secondary" Text="{Binding Author}" TextTrimming="CharacterEllipsis"/>
 
                             <!-- AI tag -->
-                            <ItemsControl ItemsSource="{Binding _Tags}" Margin="0,6,0,0" IsVisible="{Binding _Tags.Count}">
+                            <ItemsControl ItemsSource="{Binding _Tags}" Margin="0,6,0,0" Height="48" ClipToBounds="True"
+                                          ToolTip.Tip="{Binding TagSummary}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
@@ -202,5 +213,17 @@
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
+        <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="0,12,0,24">
+            <Button Grid.Column="0" Classes="subtle"
+                    Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[PreviousPage]}"
+                    Command="{Binding PreviousBrowsePageCommand}"/>
+            <StackPanel Grid.Column="1" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+                <TextBlock Text="{Binding BrowsePageStatus}" HorizontalAlignment="Center" Classes="secondary"/>
+                <ProgressBar IsIndeterminate="True" Width="100" Height="3" IsVisible="{Binding IsBrowseLoading}"/>
+            </StackPanel>
+            <Button Grid.Column="2" Classes="subtle"
+                    Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NextPage]}"
+                    Command="{Binding NextBrowsePageCommand}"/>
+        </Grid>
     </Grid>
 </UserControl>

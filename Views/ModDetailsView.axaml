@@ -76,8 +76,10 @@
                         <TextBlock Classes="secondary" Text="{Binding DetailsMod.DisplayVersion, StringFormat={} · {0}, FallbackValue={x:Null}}"/>
                         <TextBlock Classes="secondary accent" Text="{Binding SelectedInstalledMod.LatestVersion, StringFormat={} → {0}, FallbackValue={x:Null}}"
                                    IsVisible="{Binding SelectedInstalledMod.IsUpdateAvailable, FallbackValue=False}"/>
-                        <TextBlock Classes="secondary" Text="{Binding SelectedMod.DownloadsText, StringFormat={} · {0}, FallbackValue={x:Null}}"
-                                   IsVisible="{Binding SelectedMod, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                        <TextBlock Classes="secondary"
+                                   Text="{Binding SelectedMod.DownloadsText, StringFormat={} · {0}, FallbackValue={x:Null}}"
+                                   IsVisible="{Binding SelectedMod, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                   ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[UniqueDownloadsTooltip]}"/>
                     </WrapPanel>
                 </StackPanel>
 
@@ -86,18 +88,26 @@
                                Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ExternalMod]}"/>
                     <TextBlock Classes="secondary" Text="{Binding SelectedInstalledMod.ExternalPath, FallbackValue={x:Null}}"
                                TextWrapping="Wrap"/>
+                    <TextBlock Classes="secondary" Text="{Binding SelectedInstalledMod.CatalogMatch, FallbackValue={x:Null}}"
+                               IsVisible="{Binding SelectedInstalledMod.HasCatalogMatch, FallbackValue=False}" TextWrapping="Wrap"/>
                 </StackPanel>
 
                 <TextBlock Text="{Binding DetailsMod.Description, FallbackValue={x:Null}}" TextWrapping="Wrap" FontSize="14"
                            IsVisible="{Binding !SelectedInstalledMod.IsExternal, FallbackValue=True}"
                            Foreground="{DynamicResource Theme.TextSecondaryBrush}"/>
 
+                <StackPanel Spacing="4" IsVisible="{Binding SelectedMod.HasOptionalDependencies, FallbackValue=False}">
+                    <TextBlock Classes="secondary"
+                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[OptionalDependencies]}"/>
+                    <TextBlock Text="{Binding SelectedMod.OptionalDependencies}" TextWrapping="Wrap"/>
+                </StackPanel>
+
                 <!-- Main action -->
                 <Grid ColumnDefinitions="*,Auto">
                     <Panel Grid.Column="0">
                         <Button Classes="subtle" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                                 IsVisible="{Binding CanInstallSelected}"
-                                IsEnabled="{Binding !SelectedMod.IsInstalling, FallbackValue=False}"
+                                IsEnabled="{Binding SelectedMod.CanStartInstall, FallbackValue=False}"
                                 Command="{Binding InstallModCommand}"
                                 CommandParameter="{Binding SelectedMod}"
                                 Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Install]}"/>
@@ -140,7 +150,7 @@
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsSelectedInstalled}">
                     <Button Classes="subtle"
                             IsVisible="{Binding SelectedMod, Converter={x:Static ObjectConverters.IsNotNull}}"
-                            IsEnabled="{Binding !SelectedMod.IsInstalling, FallbackValue=False}"
+                            IsEnabled="{Binding SelectedMod.CanStartInstall, FallbackValue=False}"
                             Command="{Binding InstallModCommand}"
                             CommandParameter="{Binding SelectedMod}"
                             Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Reinstall]}"/>

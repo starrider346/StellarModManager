@@ -14,7 +14,6 @@ internal static class ExternalModScanner
     internal static List<InstalledModInfo> Scan(string gamePath, HashSet<string> managedPaths)
     {
         var result = new List<InstalledModInfo>();
-        var modsFolder = Path.Combine(gamePath, ProfileFiles.Mods);
         var options = new EnumerationOptions
         {
             RecurseSubdirectories = true,
@@ -23,17 +22,21 @@ internal static class ExternalModScanner
             AttributesToSkip = FileAttributes.ReparsePoint
         };
 
-        try
+        foreach (var folder in ProfileFiles.ProfileDirectories)
         {
-            foreach (var file in Directory.EnumerateFiles(modsFolder, "*.dll", options))
+            try
             {
-                var relativePath = Path.GetRelativePath(gamePath, file).Replace(Path.DirectorySeparatorChar, '/');
-                if (!managedPaths.Contains(relativePath))
-                    ReadAssembly(file, relativePath, result);
+                var root = ProfileFiles.Resolve(gamePath, folder);
+                foreach (var file in Directory.EnumerateFiles(root, "*.dll", options))
+                {
+                    var relativePath = Path.GetRelativePath(gamePath, file).Replace(Path.DirectorySeparatorChar, '/');
+                    if (!managedPaths.Contains(relativePath))
+                        ReadAssembly(file, relativePath, result);
+                }
             }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
 
         return result
             .OrderBy(mod => mod.Name, StringComparer.CurrentCultureIgnoreCase)
@@ -136,6 +139,7 @@ internal static class ExternalModScanner
         {
             Id = $"external:{relativePath}:{index}",
             ExternalPath = relativePath,
+            Type = relativePath.StartsWith("Plugins/", StringComparison.Ordinal) ? SubmissionType.Plugin : SubmissionType.Mod,
             Name = modName,
             Author = value.ReadSerializedString() ?? "UNKNOWN",
             Version = version ?? ""

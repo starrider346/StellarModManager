@@ -17,12 +17,13 @@ jobs:
     runs-on: windows-latest
     env:
       VERSION: ${{ inputs.version }}
+      STELLARMODS_API_ORIGIN: ${{ vars.STELLARMODS_API_ORIGIN || 'https://localhost:3000' }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - name: Publish app
         shell: pwsh
@@ -30,7 +31,7 @@ jobs:
           dotnet publish StellarModManager.csproj -c Release -r win-x64 `
             --self-contained true -p:PublishSingleFile=true `
             -p:DebugType=None -p:DebugSymbols=false `
-            -p:Version=$env:VERSION -o App
+            -p:Version=$env:VERSION "-p:StellarModsApiOrigin=$env:STELLARMODS_API_ORIGIN" -o App
           Copy-Item License.txt, PostInfo.txt App\
           Copy-Item Assets\icon.ico App\icon.ico
 
