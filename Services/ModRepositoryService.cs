@@ -31,7 +31,7 @@ public class ModRepositoryService
         _origin = origin;
     }
 
-    private static Uri ConfiguredOrigin()
+    internal static Uri ConfiguredOrigin()
     {
         var origin = typeof(ModRepositoryService).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
             .FirstOrDefault(attribute => attribute.Key == "StellarModsApiOrigin")?.Value;
@@ -62,13 +62,15 @@ public class ModRepositoryService
     }
 
     internal async Task<CatalogPage> GetPageAsync(int page, int pageSize, string keyword, int sortIndex,
+        SubmissionType type,
         CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(page, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(pageSize, 1);
         var sort = sortIndex switch { 1 => "Name", 2 => "Downloads", _ => "ReleaseTime" };
         var order = sortIndex == 1 ? "ascending" : "descending";
-        var query = $"keyword={Uri.EscapeDataString(keyword.Trim())}&sort={sort}&sort_order={order}";
+        var submissionType = type == SubmissionType.Plugin ? "plugin" : "mod";
+        var query = $"keyword={Uri.EscapeDataString(keyword.Trim())}&sort={sort}&sort_order={order}&type={submissionType}";
         var apiPageSize = Math.Min(pageSize, PageSize);
         var offset = (page - 1L) * pageSize;
         var cursor = offset;
@@ -175,38 +177,84 @@ public class ModRepositoryService
         }
     }
 
+    internal async Task<string?> GetCurrentGameVersionAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await ReadAsync<GameVersionResponse>("/api/game-version", cancellationToken);
+        return string.IsNullOrWhiteSpace(result.CurrentGameVersion) ? null : result.CurrentGameVersion.Trim();
+    }
+
+    private sealed record GameVersionResponse(string? CurrentGameVersion);
+
     private sealed record HashMatch(Submission? Submission);
 
     private async Task<T> ReadAsync<T>(string path, CancellationToken cancellationToken = default) where T : class =>
         await _httpClient.GetFromJsonAsync<T>(new Uri(_origin, path), cancellationToken)
         ?? throw new InvalidDataException("The catalog returned an empty response.");
 
-    public Task LoadChangelogAsync(OnlineModInfo mod) =>
-        mod.ChangelogTask ??= FetchChangelogAsync(mod, mod.ChangelogRevision);
+    public async Task LoadChangelogAsync(OnlineModInfo mod)
+    {
+        var task = mod.ChangelogTask ??= FetchChangelogAsync(mod, mod.ChangelogRevision);
+        await task;
+        if (ReferenceEquals(mod.ChangelogTask, task) && mod.ChangelogUnavailable)
+            mod.ChangelogTask = null;
+    }
 
     private async Task FetchChangelogAsync(OnlineModInfo mod, (Guid?, string?, string?, string?) revision)
     {
+        var generation = mod.ChangelogGeneration;
+        mod.IsChangelogLoading = true;
+        mod.ChangelogUnavailable = false;
         try
         {
             var entries = new List<ChangelogEntry>();
             for (var page = 1; ; page++)
             {
                 var result = await ReadAsync<ReleasePage>($"/api/submissions/{mod.Id}/releases?page={page}&page_size={PageSize}");
-                entries.AddRange(result.Items.Select(release => new ChangelogEntry(release.Uuid, release.Version, release.Changelog)));
+                entries.AddRange(result.Items.Select((release, index) =>
+                {
+                    var installation = new OnlineModInfo
+                    {
+                        Id = mod.Id, Type = mod.Type, Name = mod.Name, Author = mod.Author,
+                        Description = mod.Description, CurrentGameVersion = mod.CurrentGameVersion
+                    };
+                    installation.SetRelease(release);
+                    return new ChangelogEntry(release.Uuid, release.Version, release.Changelog)
+                    {
+                        IsNewest = page == 1 && index == 0,
+                        Installation = installation,
+                        Dependencies = release.Dependencies.Hard
+                            .Select(dependency => new ReleaseDependencyInfo(dependency.Uuid, dependency.Name, true))
+                            .Concat(release.Dependencies.Soft.Select(dependency =>
+                                new ReleaseDependencyInfo(dependency.Uuid, dependency.Name, false))).ToList()
+                    };
+                }));
                 if (result.Items.Count == 0 || page * (long)result.PageSize >= result.TotalCount)
                     break;
             }
-            if (revision == mod.ChangelogRevision)
+            if (revision == mod.ChangelogRevision && generation == mod.ChangelogGeneration)
             {
                 mod.Changelog.Clear();
                 foreach (var entry in entries)
+                {
+                    if (entry.Installation is { } installation)
+                        installation.CurrentGameVersion = mod.CurrentGameVersion;
                     mod.Changelog.Add(entry);
+                }
+                // Release history is freshly loaded when details reopen. Keep the
+                // submission warning in sync with author edits to its latest release.
+                mod.SetRelease(entries.FirstOrDefault()?.Installation?.Release);
+                mod.IsChangelogLoading = false;
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or InvalidDataException)
         {
-            if (revision == mod.ChangelogRevision)
-                mod.ChangelogTask = null;
+            if (revision == mod.ChangelogRevision && generation == mod.ChangelogGeneration)
+                mod.ChangelogUnavailable = true;
+        }
+        finally
+        {
+            if (revision == mod.ChangelogRevision && generation == mod.ChangelogGeneration)
+                mod.IsChangelogLoading = false;
         }
     }
 

@@ -61,6 +61,7 @@ public class GridWrapPanel : Panel, INavigableContainer
     {
         bool horiz = Orientation == Orientation.Horizontal;
         int index = from is not null ? Children.IndexOf((Control)from) : -1;
+        var columns = ItemWidth > 0 ? Math.Max(1, (int)Math.Floor(Bounds.Width / ItemWidth)) : 1;
 
         switch (direction)
         {
@@ -83,10 +84,10 @@ public class GridWrapPanel : Panel, INavigableContainer
                 index = horiz ? index + 1 : -1;
                 break;
             case NavigationDirection.Up:
-                index = horiz ? -1 : index - 1;
+                index -= columns;
                 break;
             case NavigationDirection.Down:
-                index = horiz ? -1 : index + 1;
+                index += columns;
                 break;
         }
 

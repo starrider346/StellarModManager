@@ -26,15 +26,17 @@ public partial class MainWindowViewModel
     private OnlineModInfo? _modPendingInstall;
     private TaskCompletionSource<bool>? _replacementConfirmation;
 
-    [ObservableProperty] public partial bool IsConfirmReplacementOpen { get; set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AreModActionsBlocked))] public partial bool IsConfirmReplacementOpen { get; set; }
     [ObservableProperty] public partial string ConfirmReplacementMessage { get; set; } = "";
 
-    [ObservableProperty] public partial bool IsConfirmRemoveOpen { get; set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AreModActionsBlocked))] public partial bool IsConfirmRemoveOpen { get; set; }
     [ObservableProperty] public partial string ConfirmRemoveTitle { get; set; } = "";
     [ObservableProperty] public partial string ConfirmRemoveButton { get; set; } = "";
     [ObservableProperty] public partial string ConfirmRemoveMessage { get; set; } = "";
-    [ObservableProperty] public partial bool IsConfirmDependenciesOpen { get; set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AreModActionsBlocked))] public partial bool IsConfirmDependenciesOpen { get; set; }
     [ObservableProperty] public partial string ConfirmDependenciesMessage { get; set; } = "";
+
+    public bool AreModActionsBlocked => IsModOperationInProgress || IsConfirmReplacementOpen || IsConfirmRemoveOpen || IsConfirmDependenciesOpen;
 
     private void ShowInstalledMods(List<ManagedInstall> mods)
     {
@@ -115,6 +117,7 @@ public partial class MainWindowViewModel
         {
             online.IsInstalled = InstalledMods.Any(m => SameId(m.Id, online.Id));
             online.HasUpdate = false;
+            RefreshReleaseInstallStates(online);
         }
 
         foreach (var installed in InstalledMods)
@@ -145,6 +148,7 @@ public partial class MainWindowViewModel
     private async Task LoadUpdateNotesAsync(InstalledModInfo installed, OnlineModInfo online)
     {
         await _repositoryService.LoadChangelogAsync(online);
+        RefreshReleaseInstallStates(online);
         installed.UpdateNotes = string.Join("\n\n", online.Changelog
             .Where(entry => entry.ReleaseId.CompareTo(installed.ReleaseUuid) > 0 ||
                 entry.ReleaseId == installed.ReleaseUuid && online.Release?.Uuid == installed.ReleaseUuid)
@@ -328,8 +332,11 @@ public partial class MainWindowViewModel
     {
         var profile = _profilePendingDeletion;
         var mod = _modPendingRemoval;
+        var discussionComment = _discussionCommentPendingDeletion;
         CancelRemove();
-        if (profile != null)
+        if (discussionComment is { } comment && CanDeleteDiscussionComment(comment.Author))
+            await DeleteDiscussionCommentAsync(comment.Comment, comment.Parent);
+        else if (profile != null)
             await DeleteProfileAsync(profile);
         else if (mod != null)
             await UninstallMod(mod);
@@ -341,6 +348,7 @@ public partial class MainWindowViewModel
         IsConfirmRemoveOpen = false;
         _modPendingRemoval = null;
         _profilePendingDeletion = null;
+        _discussionCommentPendingDeletion = null;
     }
 
     private async Task UninstallMod(InstalledModInfo mod)

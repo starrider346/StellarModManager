@@ -52,6 +52,7 @@ public class ThemeService
 
         // Set the icon color for SVGs to match the primary text color.
         resources["Theme.IconCss"] = $".icon-fill {{ fill: {theme.TextPrimary}; }} .icon-stroke {{ stroke: {theme.TextPrimary}; }}";
+        resources["Theme.AccentIconCss"] = $".icon-fill {{ fill: {theme.AccentForeground}; }} .icon-stroke {{ stroke: {theme.AccentForeground}; }}";
 
         // Fluent controls (checkboxes, focus rings, text selection) follow the theme accent
         var accent = Color.Parse(theme.Accent);

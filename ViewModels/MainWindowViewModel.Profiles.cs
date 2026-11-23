@@ -25,10 +25,11 @@ public partial class MainWindowViewModel
     public ObservableCollection<ModProfile> ModProfiles { get; } = [];
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ActiveProfileName))]
+    [NotifyPropertyChangedFor(nameof(ActiveProfileName), nameof(LibraryShortcutText))]
     public partial ModProfile? ActiveProfile { get; set; }
 
     public string ActiveProfileName => ActiveProfile?.Name ?? "Profile";
+    public string LibraryShortcutText => LocalizationService.Instance.Format("ProfileLibraryCount", ActiveProfileName, LibraryMods.Count);
 
     [ObservableProperty]
     public partial bool IsProfilesDropdownOpen { get; set; }
@@ -37,6 +38,7 @@ public partial class MainWindowViewModel
     public partial string NewProfileName { get; set; } = "";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AreModActionsBlocked))]
     public partial bool IsModOperationInProgress { get; set; }
 
 
@@ -58,6 +60,8 @@ public partial class MainWindowViewModel
 
     private void ClearGameProfiles()
     {
+        IsProfilesDropdownOpen = false;
+        CloseModDetails();
         _profileStore = null;
         ActiveProfile = null;
         ModProfiles.Clear();
@@ -101,6 +105,7 @@ public partial class MainWindowViewModel
     [RelayCommand]
     private Task SwitchProfile(ModProfile? profile)
     {
+        IsProfilesDropdownOpen = false;
         if (profile == null || profile.Id == ActiveProfile?.Id)
             return Task.CompletedTask;
         return ApplyProfileSwitch(profile.Id);
@@ -118,6 +123,7 @@ public partial class MainWindowViewModel
             return;
         }
 
+        IsProfilesDropdownOpen = false;
         if (await ApplyProfileSwitch(Guid.Empty, clone: new ModProfile { Name = name }))
             NewProfileName = "";
     }
@@ -131,6 +137,7 @@ public partial class MainWindowViewModel
 
         if (profile.Id == ActiveProfile?.Id || profile.SnapshotId.HasValue)
         {
+            IsProfilesDropdownOpen = false;
             _profilePendingDeletion = profile;
             ShowRemoveConfirmation("ProfileDeleteTitle", "ProfileDelete", "ProfileDeleteMessage", profile.Name);
             return;
@@ -288,6 +295,7 @@ public partial class MainWindowViewModel
         if (ActiveProfile == null || GetMainWindow() is not Window window || !TryBeginModOperation())
             return;
 
+        IsProfilesDropdownOpen = false;
         try
         {
             var profile = new ProfileFile(2, ActiveProfileName, InstalledMods.Select(m => Guid.Parse(m.Id)).ToList());
@@ -323,6 +331,7 @@ public partial class MainWindowViewModel
         if (GetMainWindow() is not Window window || !TryBeginModOperation())
             return;
 
+        IsProfilesDropdownOpen = false;
         try
         {
             var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions

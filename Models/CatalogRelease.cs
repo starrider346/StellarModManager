@@ -13,6 +13,8 @@ public enum SubmissionType
 internal sealed record CatalogRelease(Guid Uuid, string Version, string Changelog, string Source, string? Sha256,
     ReleaseDependencies Dependencies)
 {
+    public string? LatestTestedVersion { get; init; }
+
     internal bool IsInstallable => Sha256 is { Length: 64 } && Sha256.All(Uri.IsHexDigit)
         && Uri.TryCreate(Source, UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps
         && url.Host == "github.com" && url.IsDefaultPort && url.UserInfo.Length == 0

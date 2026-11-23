@@ -32,7 +32,7 @@ public class SettingsService
     public AppSettings LoadAppSettings()
     {
         if (!File.Exists(AppPaths.AppSettingsPath))
-            return new AppSettings();
+            return new AppSettings { Theme = "Midnight Slate", CompactModList = true };
 
         string json = File.ReadAllText(AppPaths.AppSettingsPath);
         return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();

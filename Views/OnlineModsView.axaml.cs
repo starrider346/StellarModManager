@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Data.Converters;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using StellarModManager.Services;
@@ -12,11 +13,17 @@ namespace StellarModManager.Views;
 
 public partial class OnlineModsView : UserControl
 {
+    public static readonly IMultiValueConverter CatalogOptionText = new FuncMultiValueConverter<string, string>(values =>
+        LocalizationService.Instance[values.FirstOrDefault() ?? ""]);
+
     private MainWindowViewModel? _viewModel;
+    private const double LibraryRailBreakpoint = 1000;
 
     public OnlineModsView()
     {
         InitializeComponent();
+        BrowseLayoutRoot.SizeChanged += (_, _) => UpdateLibraryShortcutLayout();
+        UpdateLibraryShortcutLayout();
         DataContextChanged += (_, _) => BindViewModel();
         CardList.SizeChanged += (_, _) => UpdateCompactLayout();
         TableList.SizeChanged += (_, _) => UpdateListLayout();
@@ -72,6 +79,15 @@ public partial class OnlineModsView : UserControl
 
         _viewModel.SetListCapacity(BrowseLayout.CalculateListCapacity(TableList.Bounds.Height,
             TopLevel.GetTopLevel(this)?.RenderScaling ?? 1));
+    }
+
+    private void UpdateLibraryShortcutLayout()
+    {
+        var showRail = BrowseLayoutRoot.Bounds.Width >= LibraryRailBreakpoint;
+        Grid.SetColumn(LibraryShortcut, showRail ? 1 : 0);
+        Grid.SetRow(LibraryShortcut, showRail ? 0 : 1);
+        Grid.SetRowSpan(LibraryShortcut, showRail ? 3 : 1);
+        LibraryShortcut.Classes.Set("rail", showRail);
     }
 
     private void UpdateCompactLayout()

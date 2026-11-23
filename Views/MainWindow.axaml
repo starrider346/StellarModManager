@@ -22,28 +22,63 @@
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
-    <Grid RowDefinitions="48,*">
+    <Grid RowDefinitions="56,*">
 
         <!-- Title bar -->
-        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Background="Transparent"
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto" Background="{DynamicResource Theme.PanelBrush}"
               WindowDecorationProperties.ElementRole="TitleBar">
 
-            <Image Grid.Column="0" Source="/Assets/icon.ico" Width="16" Height="16" Margin="12,0,8,0"/>
-            
-            <StackPanel Grid.Column="1" Orientation="Horizontal">
-                <TextBlock Classes="secondary" VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis"
-                           Text="{Binding $parent[Window].Title}"/>
+            <Image Grid.Column="0" Source="/Assets/icon.ico" Width="16" Height="16" Margin="22,0,10,0"/>
 
-                <!-- Play/Stop button -->
-                <Button Classes="ghost" Height="30" Margin="24,0,0,0" Padding="10,0,12,0"
-                        VerticalAlignment="Center" CornerRadius="6"
-                        Background="Transparent"
-                        BorderBrush="{DynamicResource Theme.BorderBrush}" BorderThickness="1"
-                        Command="{Binding ToggleGameCommand}"
-                        IsVisible="{Binding !SetupRequired}"
+            <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Theme.TextPrimaryBrush}"
+                       TextTrimming="CharacterEllipsis" Text="{Binding $parent[Window].Title}"/>
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="8,0,8,0" VerticalAlignment="Center">
+                <Button Classes="subtle" Height="36" CornerRadius="8" HorizontalContentAlignment="Center"
+                        Command="{Binding SignInWithSteamCommand}" IsVisible="{Binding !HasSteamUser}"
+                        IsEnabled="{Binding !IsSteamBusy}" WindowDecorationProperties.ElementRole="User"
+                        AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SteamSignIn]}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Path="/Assets/Icons/brand-steam.svg"
+                                 Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center"/>
+                        <TextBlock VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold"
+                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SteamSignIn]}"/>
+                    </StackPanel>
+                </Button>
+                <Button Classes="subtle" Height="36" CornerRadius="8" HorizontalContentAlignment="Center"
+                        Command="{Binding CancelSteamSignInCommand}" IsVisible="{Binding IsSteamSignInPending}"
+                        WindowDecorationProperties.ElementRole="User"
+                        Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Cancel]}"/>
+                <TextBlock Classes="secondary" VerticalAlignment="Center" MaxWidth="120" TextTrimming="CharacterEllipsis"
+                           IsVisible="{Binding HasSteamUser}" Text="{Binding SteamUser.DisplayName, FallbackValue={x:Null}}"/>
+                <Button Classes="subtle" Height="36" CornerRadius="8" HorizontalContentAlignment="Center"
+                        Command="{Binding SignOutSteamCommand}" IsVisible="{Binding HasSteamUser}"
+                        IsEnabled="{Binding !IsSteamBusy}" WindowDecorationProperties.ElementRole="User"
+                        Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SteamSignOut]}"/>
+            </StackPanel>
+
+            <StackPanel x:Name="HeaderActions" Grid.Column="3" Orientation="Horizontal" Spacing="8"
+                        Margin="0,0,12,0" VerticalAlignment="Center" IsVisible="{Binding !SetupRequired}">
+                <Button x:Name="ProfileButton" Classes="subtle" MinWidth="144" MaxWidth="248"
+                        Height="36" CornerRadius="8" HorizontalContentAlignment="Stretch"
+                        Command="{Binding ToggleProfilesDropdownCommand}"
+                        IsEnabled="{Binding !IsModOperationInProgress}"
+                        AutomationProperties.Name="{Binding ActiveProfileName}"
+                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfilesLabel]}"
                         WindowDecorationProperties.ElementRole="User">
+                    <Grid ColumnDefinitions="16,*,Auto" ColumnSpacing="8">
+                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Path="/Assets/Icons/library.svg"
+                                 Width="14" Height="14"/>
+                        <TextBlock Grid.Column="1" Text="{Binding ActiveProfileName}"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="▾" Classes="secondary" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
 
+                <Button Classes="subtle" Height="36" MinWidth="78" CornerRadius="8"
+                        HorizontalContentAlignment="Center" Command="{Binding ToggleGameCommand}"
+                        WindowDecorationProperties.ElementRole="User">
                     <Panel>
                         <!-- Play -->
                         <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !IsGameRunning}"
@@ -66,7 +101,7 @@
                 </Button>
             </StackPanel>
 
-            <StackPanel Grid.Column="2" Orientation="Horizontal">
+            <StackPanel Grid.Column="4" Orientation="Horizontal">
                 <Button Classes="caption" Click="OnMinimizeClick"
                         WindowDecorationProperties.ElementRole="MinimizeButton">
                     <svg:Svg Css="{DynamicResource Theme.IconCss}" Path="/Assets/Icons/minimize.svg" Width="16" Height="16" Stretch="Uniform"/>
@@ -87,423 +122,415 @@
                     <svg:Svg Css="{DynamicResource Theme.IconCss}" Path="/Assets/Icons/close.svg" Width="16" Height="16" Stretch="Uniform"/>
                 </Button>
             </StackPanel>
+
+            <Popup x:Name="ProfilePopup" IsOpen="{Binding IsProfilesDropdownOpen, Mode=TwoWay}"
+                   PlacementTarget="{Binding #ProfileButton}" Placement="BottomEdgeAlignedRight"
+                   VerticalOffset="6" IsLightDismissEnabled="True" ShouldUseOverlayLayer="True"
+                   Opened="OnProfilePopupOpened" Closed="OnProfilePopupClosed">
+                <Border x:Name="ProfileMenu" Width="316" KeyDown="OnProfileMenuKeyDown" KeyboardNavigation.TabNavigation="Cycle"
+                        IsEnabled="{Binding !IsModOperationInProgress}"
+                        Background="{DynamicResource Theme.SurfaceBrush}"
+                        BorderBrush="{DynamicResource Theme.BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="8">
+                    <StackPanel Spacing="1">
+                        <ScrollViewer MaxHeight="244" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl ItemsSource="{Binding ModProfiles}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:ModProfile">
+                                        <Panel Height="28">
+                                            <Grid ColumnDefinitions="*,Auto,Auto"
+                                                  IsVisible="{Binding !IsEditing}">
+                                                <Button Grid.Column="0" Classes="ghost" Height="26"
+                                                        Padding="8,0" CornerRadius="3"
+                                                        HorizontalAlignment="Stretch"
+                                                        HorizontalContentAlignment="Stretch"
+                                                        Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).SwitchProfileCommand}"
+                                                        CommandParameter="{Binding}">
+                                                    <Grid ColumnDefinitions="16,*">
+                                                        <svg:Svg Css="{DynamicResource Theme.IconCss}"
+                                                                 Path="/Assets/Icons/check.svg"
+                                                                 Width="10" Height="10"
+                                                                 IsVisible="{Binding IsActive}"/>
+                                                        <Border Width="10" IsVisible="{Binding !IsActive}"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="13"
+                                                                   VerticalAlignment="Center"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                    </Grid>
+                                                </Button>
+                                                <Button Grid.Column="1" Classes="ghost icon"
+                                                        Width="24" Height="24" CornerRadius="3"
+                                                        Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).StartRenameCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileRename]}">
+                                                    <TextBlock FontSize="11" VerticalAlignment="Center">✎</TextBlock>
+                                                </Button>
+                                                <Button Grid.Column="2" Classes="ghost icon"
+                                                        Width="24" Height="24" CornerRadius="3"
+                                                        Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).DeleteProfileCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileDelete]}">
+                                                    <svg:Svg Css="{DynamicResource Theme.IconCss}"
+                                                             Path="/Assets/Icons/close.svg"
+                                                             Width="10" Height="10" Stretch="Uniform"/>
+                                                </Button>
+                                            </Grid>
+                                            <Grid ColumnDefinitions="*,Auto,Auto"
+                                                  IsVisible="{Binding IsEditing}">
+                                                <TextBox Grid.Column="0" Text="{Binding EditName}"
+                                                         Height="26" FontSize="12"
+                                                         Padding="6,0" VerticalContentAlignment="Center"
+                                                         CornerRadius="3"
+                                                         KeyDown="OnRenameKeyDown"/>
+                                                <Button Grid.Column="1" Classes="ghost icon"
+                                                        Width="24" Height="24" CornerRadius="3"
+                                                        Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).CommitRenameCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileConfirm]}">
+                                                    <svg:Svg Css="{DynamicResource Theme.IconCss}"
+                                                             Path="/Assets/Icons/check.svg"
+                                                             Width="10" Height="10" Stretch="Uniform"/>
+                                                </Button>
+                                                <Button Grid.Column="2" Classes="ghost icon"
+                                                        Width="24" Height="24" CornerRadius="3"
+                                                        Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).CancelRenameCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Cancel]}">
+                                                    <svg:Svg Css="{DynamicResource Theme.IconCss}"
+                                                             Path="/Assets/Icons/close.svg"
+                                                             Width="10" Height="10" Stretch="Uniform"/>
+                                                </Button>
+                                            </Grid>
+                                        </Panel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <Rectangle Height="1" Fill="{DynamicResource Theme.BorderBrush}" Margin="0,4"/>
+
+                        <Grid ColumnDefinitions="*,Auto" Height="28">
+                            <TextBox Grid.Column="0" Text="{Binding NewProfileName}"
+                                     Height="26" FontSize="12"
+                                     Padding="6,0" VerticalContentAlignment="Center"
+                                     CornerRadius="3"
+                                     PlaceholderText="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileNewPlaceholder]}"
+                                     KeyDown="OnNewProfileKeyDown"/>
+                            <Button Grid.Column="1" Classes="ghost icon"
+                                    Width="26" Height="26" CornerRadius="3"
+                                    Command="{Binding CreateProfileCommand}"
+                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileCreate]}">
+                                <TextBlock FontSize="14" VerticalAlignment="Center"
+                                           HorizontalAlignment="Center">+</TextBlock>
+                            </Button>
+                        </Grid>
+
+                        <Rectangle Height="1" Fill="{DynamicResource Theme.BorderBrush}" Margin="0,4"/>
+
+                        <Grid ColumnDefinitions="*,*" Height="28" Margin="0,0,0,2">
+                            <Button Grid.Column="0" Classes="ghost" Height="26" Margin="0,0,2,0"
+                                    Padding="6,0" CornerRadius="3"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    Command="{Binding ImportProfileCommand}"
+                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileImport]}">
+                                <TextBlock FontSize="11" VerticalAlignment="Center"
+                                           Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileImport]}"/>
+                            </Button>
+                            <Button Grid.Column="1" Classes="ghost" Height="26" Margin="2,0,0,0"
+                                    Padding="6,0" CornerRadius="3"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    Command="{Binding ExportProfileCommand}"
+                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileExport]}">
+                                <TextBlock FontSize="11" VerticalAlignment="Center"
+                                           Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileExport]}"/>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Popup>
         </Grid>
 
         <Grid Grid.Row="1">
+            <Grid x:Name="MainContent" RowDefinitions="Auto,*">
+                <Border Padding="22,8" Background="{DynamicResource Theme.SurfaceBrush}"
+                        BorderBrush="{DynamicResource Theme.BorderBrush}" BorderThickness="0,0,0,1"
+                        IsVisible="{Binding SteamStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding SteamStatus}" TextWrapping="Wrap" FontSize="13"
+                               Foreground="{DynamicResource Theme.TextSecondaryBrush}"/>
+                </Border>
 
-            <!-- SETUP -->
-            <views:SetupPanelView IsVisible="{Binding SetupRequired}"/>
+                <views:SetupPanelView Grid.Row="1" IsVisible="{Binding SetupRequired}"/>
 
-            <!-- MAIN APP -->
-            <SplitView
-                       IsVisible="{Binding !SetupRequired}"
-                       IsPaneOpen="{Binding IsPaneOpen}"
-                       OpenPaneLength="180"
-                       DisplayMode="CompactInline"
-                       CompactPaneLength="50"
-                       PaneBackground="Transparent">
+                <SplitView Grid.Row="1"
+                           IsVisible="{Binding !SetupRequired}"
+                           IsPaneOpen="{Binding IsPaneOpen}"
+                           OpenPaneLength="208"
+                           DisplayMode="CompactInline"
+                           CompactPaneLength="58"
+                           PaneBackground="{DynamicResource Theme.PanelBrush}">
 
-                <SplitView.Pane>
-                    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="4,8,4,8">
+                    <SplitView.Pane>
+                        <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="7,8,7,12" ClipToBounds="True">
 
-                        <Button Grid.Row="1" Classes="ghost icon" Width="42" Height="36"
-                                Command="{Binding TogglePaneCommand}"
-                                ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ToggleNavigation]}">
-                            <svg:Svg Grid.Column="0"
-                                Path="/Assets/Icons/menu.svg"
-                                Css="{DynamicResource Theme.IconCss}"
-                                Width="20"
-                                Height="20"
-                                Stretch="Uniform"
-                                VerticalAlignment="Center"
-                                HorizontalAlignment="Center"/>
-                        </Button>
-                        <StackPanel Spacing="4" Margin="0,8,0,0">
-                            <Button Classes="nav" Classes.selected="{Binding IsBrowsePage}"
-                                    Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Browse}">
-                                <Grid ColumnDefinitions="44,*,Auto">
-                                    <Border Classes="pill"/>
-                                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                             Path="/Assets/Icons/browse.svg"
-                                             Width="24"
-                                             Height="24"
-                                             Stretch="Uniform"
-                                             VerticalAlignment="Center"
-                                             HorizontalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" VerticalAlignment="Center"
-                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavBrowse]}"/>
-                                </Grid>
-                            </Button>
-
-                            <Button Classes="nav" Classes.selected="{Binding IsLibraryPage}"
-                                    Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Library}">
-                                <Grid ColumnDefinitions="44,*,Auto">
-                                    <Border Classes="pill"/>
-                                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                             Path="/Assets/Icons/library.svg"
-                                             Width="24"
-                                             Height="24"
-                                             Stretch="Uniform"
-                                             VerticalAlignment="Center"
-                                             HorizontalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" VerticalAlignment="Center"
-                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLibrary]}"/>
-                                    <TextBlock Grid.Column="2" Margin="0,0,14,0" VerticalAlignment="Center" FontSize="12"
-                                               Foreground="{DynamicResource Theme.TextMutedBrush}"
-                                               Text="{Binding LibraryMods.Count}"/>
-                                </Grid>
-                            </Button>
-
-                            <Button Classes="nav" Classes.selected="{Binding IsUpdatesPage}"
-                                    Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Updates}">
-                                <Grid ColumnDefinitions="44,*,Auto">
-                                    <Border Classes="pill"/>
-                                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                             Path="/Assets/Icons/update.svg"
-                                             Width="24"
-                                             Height="24"
-                                             Stretch="Uniform"
-                                             VerticalAlignment="Center"
-                                             HorizontalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" VerticalAlignment="Center"
-                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavUpdates]}"/>
-                                    <Border Grid.Column="2" Classes="badge" Margin="0,0,12,0"
-                                            IsVisible="{Binding !!AvailableModUpdates.Count}">
-                                        <TextBlock Text="{Binding AvailableModUpdates.Count}"/>
-                                    </Border>
-                                </Grid>
-                            </Button>
-                        
-                            <!-- Profiles -->
-                            <StackPanel IsVisible="{Binding IsPaneOpen}" IsEnabled="{Binding !IsModOperationInProgress}" Margin="0,2,0,0" Spacing="2">
-                                <Button Classes="ghost" Height="30" Padding="12,0" CornerRadius="4"
-                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                        Command="{Binding ToggleProfilesDropdownCommand}">
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <svg:Svg Css="{DynamicResource Theme.IconCss}"
-                                                     Path="/Assets/Icons/library.svg"
-                                                     Width="14" Height="14" Stretch="Uniform"/>
-                                            <TextBlock Text="{Binding ActiveProfileName}" FontSize="12"
-                                                       Foreground="{DynamicResource Theme.TextSecondaryBrush}"
-                                                       VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="1" Text="▾" FontSize="10" Margin="4,0,2,0"
-                                                   Foreground="{DynamicResource Theme.TextMutedBrush}"
-                                                   VerticalAlignment="Center"/>
-                                    </Grid>
-                                </Button>
-
-                                <Border IsVisible="{Binding IsProfilesDropdownOpen}"
-                                        Background="{DynamicResource Theme.SurfaceBrush}"
-                                        BorderBrush="{DynamicResource Theme.BorderBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="4"
-                                        Padding="4">
-                                    <StackPanel Spacing="1">
-                                        <ItemsControl ItemsSource="{Binding ModProfiles}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate x:DataType="models:ModProfile">
-                                                    <Panel Height="28">
-                                                        <Grid ColumnDefinitions="*,Auto,Auto"
-                                                              IsVisible="{Binding !IsEditing}">
-                                                            <Button Grid.Column="0" Classes="ghost" Height="26"
-                                                                    Padding="8,0" CornerRadius="3"
-                                                                    HorizontalAlignment="Stretch"
-                                                                    HorizontalContentAlignment="Stretch"
-                                                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).SwitchProfileCommand}"
-                                                                    CommandParameter="{Binding}">
-                                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                    <svg:Svg Css="{DynamicResource Theme.IconCss}"
-                                                                             Path="/Assets/Icons/check.svg"
-                                                                             Width="10" Height="10"
-                                                                             IsVisible="{Binding IsActive}"/>
-                                                                    <Border Width="10" IsVisible="{Binding !IsActive}"/>
-                                                                    <TextBlock Text="{Binding Name}" FontSize="12"
-                                                                               VerticalAlignment="Center"
-                                                                               TextTrimming="CharacterEllipsis"/>
-                                                                </StackPanel>
-                                                            </Button>
-                                                            <Button Grid.Column="1" Classes="ghost icon"
-                                                                    Width="24" Height="24" CornerRadius="3"
-                                                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).StartRenameCommand}"
-                                                                    CommandParameter="{Binding}"
-                                                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileRename]}">
-                                                                <TextBlock FontSize="11" VerticalAlignment="Center">✎</TextBlock>
-                                                            </Button>
-                                                            <Button Grid.Column="2" Classes="ghost icon"
-                                                                    Width="24" Height="24" CornerRadius="3"
-                                                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).DeleteProfileCommand}"
-                                                                    CommandParameter="{Binding}"
-                                                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileDelete]}">
-                                                                <svg:Svg Css="{DynamicResource Theme.IconCss}"
-                                                                         Path="/Assets/Icons/close.svg"
-                                                                         Width="10" Height="10" Stretch="Uniform"/>
-                                                            </Button>
-                                                        </Grid>
-                                                        <Grid ColumnDefinitions="*,Auto,Auto"
-                                                              IsVisible="{Binding IsEditing}">
-                                                            <TextBox Grid.Column="0" Text="{Binding EditName}"
-                                                                     Height="26" FontSize="12"
-                                                                     Padding="6,0" VerticalContentAlignment="Center"
-                                                                     CornerRadius="3"
-                                                                     KeyDown="OnRenameKeyDown"/>
-                                                            <Button Grid.Column="1" Classes="ghost icon"
-                                                                    Width="24" Height="24" CornerRadius="3"
-                                                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).CommitRenameCommand}"
-                                                                    CommandParameter="{Binding}"
-                                                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileConfirm]}">
-                                                                <svg:Svg Css="{DynamicResource Theme.IconCss}"
-                                                                         Path="/Assets/Icons/check.svg"
-                                                                         Width="10" Height="10" Stretch="Uniform"/>
-                                                            </Button>
-                                                            <Button Grid.Column="2" Classes="ghost icon"
-                                                                    Width="24" Height="24" CornerRadius="3"
-                                                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).CancelRenameCommand}"
-                                                                    CommandParameter="{Binding}"
-                                                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Cancel]}">
-                                                                <svg:Svg Css="{DynamicResource Theme.IconCss}"
-                                                                         Path="/Assets/Icons/close.svg"
-                                                                         Width="10" Height="10" Stretch="Uniform"/>
-                                                            </Button>
-                                                        </Grid>
-                                                    </Panel>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-
-                                        <Rectangle Height="1" Fill="{DynamicResource Theme.BorderBrush}" Margin="0,4"/>
-
-                                        <Grid ColumnDefinitions="*,Auto" Height="28">
-                                            <TextBox Grid.Column="0" Text="{Binding NewProfileName}"
-                                                     Height="26" FontSize="12"
-                                                     Padding="6,0" VerticalContentAlignment="Center"
-                                                     CornerRadius="3"
-                                                     PlaceholderText="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileNewPlaceholder]}"
-                                                     KeyDown="OnNewProfileKeyDown"/>
-                                            <Button Grid.Column="1" Classes="ghost icon"
-                                                    Width="26" Height="26" CornerRadius="3"
-                                                    Command="{Binding CreateProfileCommand}"
-                                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileCreate]}">
-                                                <TextBlock FontSize="14" VerticalAlignment="Center"
-                                                           HorizontalAlignment="Center">+</TextBlock>
-                                            </Button>
-                                        </Grid>
-
-                                        <Rectangle Height="1" Fill="{DynamicResource Theme.BorderBrush}" Margin="0,4"/>
-
-                                        <Grid ColumnDefinitions="*,*" Height="28" Margin="0,0,0,2">
-                                            <Button Grid.Column="0" Classes="ghost" Height="26" Margin="0,0,2,0"
-                                                    Padding="6,0" CornerRadius="3"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                                    Command="{Binding ImportProfileCommand}"
-                                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileImport]}">
-                                                <TextBlock FontSize="11" VerticalAlignment="Center"
-                                                           Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileImport]}"/>
-                                            </Button>
-                                            <Button Grid.Column="1" Classes="ghost" Height="26" Margin="2,0,0,0"
-                                                    Padding="6,0" CornerRadius="3"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                                    Command="{Binding ExportProfileCommand}"
-                                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileExport]}">
-                                                <TextBlock FontSize="11" VerticalAlignment="Center"
-                                                           Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileExport]}"/>
-                                            </Button>
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-                        </StackPanel>
-
-                        <!-- Game folder -->
-                        <Button Grid.Row="3" Classes="ghost" Margin="4,0,4,8" Padding="12,10"
-                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                Background="{DynamicResource Theme.SurfaceBrush}"
-                                IsVisible="{Binding IsPaneOpen}"
-                                Command="{Binding SelectGameFolderCommand}"
-                                ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ChangeGameFolder]}">
-                            <StackPanel Spacing="4">
-                                <TextBlock Classes="secondary"
-                                           Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[GameLabel]}"/>
-                                <TextBlock Text="{Binding GamePath}" FontSize="13" TextTrimming="PrefixCharacterEllipsis"/>
-                                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsMelonLoaderValid}">
-                                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                        Path="/Assets/Icons/check.svg"
-                                        Width="12"
-                                        Height="12"
-                                        Stretch="Uniform"
-                                        VerticalAlignment="Center"
-                                        HorizontalAlignment="Center"/>   
-                                    <TextBlock Classes="success" FontSize="12"
-                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[MelonLoaderInstalled]}"/>
-                                </StackPanel>
-                                <TextBlock FontSize="12" Foreground="{DynamicResource Theme.DangerBrush}"
-                                           IsVisible="{Binding !IsMelonLoaderValid}"
-                                           Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[MelonLoaderMissing]}"/>
-                            </StackPanel>
-                        </Button>
-
-                        <Button Grid.Row="4" Classes="nav" Classes.selected="{Binding IsSettingsPage}"
-                                Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Settings}">
-                            <Grid ColumnDefinitions="44,*">
-                                <Border Classes="pill"/>
-                                <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                    Path="/Assets/Icons/settings.svg"
-                                    Width="24"
-                                    Height="24"
+                            <Button x:Name="NavigationToggle" Classes="ghost icon" Width="44" Height="36"
+                                    Command="{Binding TogglePaneCommand}"
+                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ToggleNavigation]}">
+                                <svg:Svg Grid.Column="0"
+                                    Path="/Assets/Icons/menu.svg"
+                                    Css="{DynamicResource Theme.IconCss}"
+                                    Width="20"
+                                    Height="20"
                                     Stretch="Uniform"
                                     VerticalAlignment="Center"
                                     HorizontalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" VerticalAlignment="Center"
-                                           Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SettingsTitle]}"/>
-                            </Grid>
-                        </Button>
-                    </Grid>
-                </SplitView.Pane>
+                            </Button>
+                            <StackPanel Grid.Row="1" Spacing="6" Margin="0,8,0,0">
+                                <Button Classes="nav" Classes.selected="{Binding IsBrowsePage}"
+                                        Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Browse}"
+                                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavBrowse]}"
+                                        AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavBrowse]}">
+                                    <Grid ColumnDefinitions="44,*,Auto">
+                                        <Border Classes="pill"/>
+                                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                                 Path="/Assets/Icons/browse.svg"
+                                                 Width="19"
+                                                 Height="19"
+                                                 Stretch="Uniform"
+                                                 VerticalAlignment="Center"
+                                                 HorizontalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="navLabel" VerticalAlignment="Center"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavBrowse]}"/>
+                                    </Grid>
+                                </Button>
 
-                <Border Background="{DynamicResource Theme.ContentBrush}"
-                        BorderBrush="{DynamicResource Theme.BorderBrush}"
-                        BorderThickness="1,1,0,0"
-                        CornerRadius="8,0,0,0"
-                        ClipToBounds="True">
-                    <Grid ColumnDefinitions="*,Auto">
+                                <Button Classes="nav" Classes.selected="{Binding IsLibraryPage}"
+                                        Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Library}"
+                                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLibrary]}"
+                                        AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLibrary]}">
+                                    <Grid ColumnDefinitions="44,*,Auto">
+                                        <Border Classes="pill"/>
+                                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                                 Path="/Assets/Icons/library.svg"
+                                                 Width="19"
+                                                 Height="19"
+                                                 Stretch="Uniform"
+                                                 VerticalAlignment="Center"
+                                                 HorizontalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="navLabel" VerticalAlignment="Center"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLibrary]}"/>
+                                        <TextBlock Grid.Column="2" Margin="0,0,14,0" VerticalAlignment="Center" FontSize="12"
+                                                   Foreground="{DynamicResource Theme.TextMutedBrush}"
+                                                   Text="{Binding LibraryMods.Count}"/>
+                                    </Grid>
+                                </Button>
 
-                        <Grid Grid.Column="0" RowDefinitions="Auto,Auto,Auto,*" Margin="32,24,24,0">
+                                <Button Classes="nav" Classes.selected="{Binding IsUpdatesPage}"
+                                        Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Updates}"
+                                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavUpdates]}"
+                                        AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavUpdates]}">
+                                    <Grid ColumnDefinitions="44,*,Auto">
+                                        <Border Classes="pill"/>
+                                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                                 Path="/Assets/Icons/update.svg"
+                                                 Width="19"
+                                                 Height="19"
+                                                 Stretch="Uniform"
+                                                 VerticalAlignment="Center"
+                                                 HorizontalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="navLabel" VerticalAlignment="Center"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavUpdates]}"/>
+                                        <Border Grid.Column="2" Classes="badge" Margin="0,0,12,0"
+                                                IsVisible="{Binding !!AvailableModUpdates.Count}">
+                                            <TextBlock Text="{Binding AvailableModUpdates.Count}"/>
+                                        </Border>
+                                    </Grid>
+                                </Button>
 
-                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
-                                <Panel>
-                                    <TextBlock Classes="pageTitle" IsVisible="{Binding IsBrowsePage}"
-                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavBrowse]}"/>
-                                    <TextBlock Classes="pageTitle" IsVisible="{Binding IsLibraryPage}"
-                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLibrary]}"/>
-                                    <TextBlock Classes="pageTitle" IsVisible="{Binding IsUpdatesPage}"
-                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavUpdates]}"/>
-                                    <TextBlock Classes="pageTitle" IsVisible="{Binding IsSettingsPage}"
-                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SettingsTitle]}"/>
-                                </Panel>
+                            </StackPanel>
 
-                                <!-- List / compact view switch -->
-                                <Border Grid.Column="1" Classes="segmented" IsVisible="{Binding !IsSettingsPage}">
-                                    <StackPanel Orientation="Horizontal" Spacing="2">
-                                        <Button Classes="ghost" IsVisible="{Binding IsLibraryPage}"
-                                                Command="{Binding RefreshLibraryCommand}"
-                                                ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Refresh]}">
-                                            <svg:Svg Css="{DynamicResource Theme.IconCss}"
-                                                     Path="/Assets/Icons/refresh.svg" Width="18" Height="18"/>
-                                        </Button>
-                                        <Button Classes="ghost" Classes.selected="{Binding !IsCompactView}"
-                                                Command="{Binding ShowListViewCommand}"
-                                                ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ViewList]}">
-                                            <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                                Path="/Assets/Icons/viewList.svg"
-                                                Width="18"
-                                                Height="18"
-                                                Stretch="Uniform"
-                                                VerticalAlignment="Center"
-                                                HorizontalAlignment="Center"/>                                       </Button>
-                                        <Button Classes="ghost" Classes.selected="{Binding IsCompactView}"
-                                                Command="{Binding ShowCompactViewCommand}"
-                                                ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ViewCompact]}">
-                                            <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                                Path="/Assets/Icons/viewGrid.svg"
-                                                Width="18"
-                                                Height="18"
-                                                Stretch="Uniform"
-                                                VerticalAlignment="Center"
-                                                HorizontalAlignment="Center"/>   
-                                        </Button>
+                            <Button Grid.Row="3" Classes="ghost" Margin="4,0,4,8" Padding="12,10"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                    Background="{DynamicResource Theme.SurfaceBrush}"
+                                    IsVisible="{Binding IsPaneOpen}"
+                                    Command="{Binding SelectGameFolderCommand}"
+                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ChangeGameFolder]}">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Classes="secondary"
+                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[GameLabel]}"/>
+                                    <TextBlock Text="{Binding GamePath}" FontSize="13" TextTrimming="PrefixCharacterEllipsis"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsMelonLoaderValid}">
+                                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                            Path="/Assets/Icons/check.svg"
+                                            Width="12"
+                                            Height="12"
+                                            Stretch="Uniform"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Center"/>
+                                        <TextBlock Classes="success" FontSize="12"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[MelonLoaderInstalled]}"/>
                                     </StackPanel>
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource Theme.DangerBrush}"
+                                               IsVisible="{Binding !IsMelonLoaderValid}"
+                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[MelonLoaderMissing]}"/>
+                                </StackPanel>
+                            </Button>
+
+                            <Button Grid.Row="4" Classes="nav" Classes.selected="{Binding IsSettingsPage}"
+                                    Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Settings}"
+                                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SettingsTitle]}"
+                                        AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SettingsTitle]}">
+                                <Grid ColumnDefinitions="44,*">
+                                    <Border Classes="pill"/>
+                                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                        Path="/Assets/Icons/settings.svg"
+                                        Width="19"
+                                        Height="19"
+                                        Stretch="Uniform"
+                                        VerticalAlignment="Center"
+                                        HorizontalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Classes="navLabel" VerticalAlignment="Center"
+                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SettingsTitle]}"/>
+                                </Grid>
+                            </Button>
+                        </Grid>
+                    </SplitView.Pane>
+
+                    <Border Background="{DynamicResource Theme.ContentBrush}"
+                            BorderBrush="{DynamicResource Theme.BorderBrush}"
+                            BorderThickness="1,1,0,0"
+                            CornerRadius="8,0,0,0"
+                            ClipToBounds="True">
+                            <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="28,20,28,0">
+
+                                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                                    <Panel>
+                                        <TextBlock Classes="pageTitle" IsVisible="{Binding IsBrowsePage}"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[CatalogTitle]}"/>
+                                        <TextBlock Classes="pageTitle" IsVisible="{Binding IsLibraryPage}"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLibrary]}"/>
+                                        <TextBlock Classes="pageTitle" IsVisible="{Binding IsUpdatesPage}"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavUpdates]}"/>
+                                        <TextBlock Classes="pageTitle" IsVisible="{Binding IsSettingsPage}"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SettingsTitle]}"/>
+                                    </Panel>
+
+                                    <Border Grid.Column="1" Classes="segmented" IsVisible="{Binding ShowPageViewControls}">
+                                        <StackPanel Orientation="Horizontal" Spacing="2">
+                                            <Button Classes="ghost" IsVisible="{Binding IsLibraryPage}"
+                                                    Command="{Binding RefreshLibraryCommand}"
+                                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Refresh]}">
+                                                <svg:Svg Css="{DynamicResource Theme.IconCss}"
+                                                         Path="/Assets/Icons/refresh.svg" Width="18" Height="18"/>
+                                            </Button>
+                                            <Button Classes="ghost" Classes.selected="{Binding !IsCompactView}"
+                                                    Command="{Binding ShowListViewCommand}"
+                                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ViewList]}">
+                                                <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                                    Path="/Assets/Icons/viewList.svg"
+                                                    Width="18"
+                                                    Height="18"
+                                                    Stretch="Uniform"
+                                                    VerticalAlignment="Center"
+                                                    HorizontalAlignment="Center"/>                                       </Button>
+                                            <Button Classes="ghost" Classes.selected="{Binding IsCompactView}"
+                                                    Command="{Binding ShowCompactViewCommand}"
+                                                    ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ViewCompact]}">
+                                                <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                                    Path="/Assets/Icons/viewGrid.svg"
+                                                    Width="18"
+                                                    Height="18"
+                                                    Stretch="Uniform"
+                                                    VerticalAlignment="Center"
+                                                    HorizontalAlignment="Center"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+
+                                <Border Grid.Row="1" Classes="infoBar" Margin="0,0,0,12" IsVisible="{Binding IsUpdateBannerVisible}">
+                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                            Path="/Assets/Icons/info.svg"
+                                            Width="16"
+                                            Height="16"
+                                            Stretch="Uniform"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Margin="12,0" FontWeight="SemiBold" VerticalAlignment="Center"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[UpdateAvailableTitle]}"/>
+                                        <TextBlock Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource Theme.TextSecondaryBrush}"
+                                                   Text="{Binding AvailableUpdateText}"/>
+                                        <Button Grid.Column="3" Classes="subtle" Margin="12,0,4,0"
+                                                Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Update]}"
+                                                Command="{Binding OpenUpdatePanelCommand}"/>
+                                        <Button Grid.Column="4" Classes="ghost icon"
+                                                Command="{Binding DismissUpdateBannerCommand}"
+                                                ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Dismiss]}">
+                                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                            Path="/Assets/Icons/close.svg"
+                                            Width="24"
+                                            Height="24"
+                                            Stretch="Uniform"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Center"/>
+                                        </Button>
+                                    </Grid>
                                 </Border>
+
+                                <Border Grid.Row="2" Classes="infoBar" Margin="0,0,0,12"
+                                        IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                            Path="/Assets/Icons/info.svg"
+                                            Width="16"
+                                            Height="16"
+                                            Stretch="Uniform"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Center"
+                                            IsVisible="{Binding IsStatusError}"/>
+                                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                            Path="/Assets/Icons/check.svg"
+                                            Width="16"
+                                            Height="16"
+                                            Stretch="Uniform"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Center"
+                                            IsVisible="{Binding !IsStatusError}"/>
+                                        <TextBlock Grid.Column="1" Margin="12,0" VerticalAlignment="Center" TextWrapping="Wrap"
+                                                   Text="{Binding StatusMessage}"/>
+                                        <Button Grid.Column="2" Classes="ghost icon"
+                                                Command="{Binding DismissStatusCommand}"
+                                                ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Dismiss]}">
+                                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
+                                            Path="/Assets/Icons/close.svg"
+                                            Width="24"
+                                            Height="24"
+                                            Stretch="Uniform"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Center"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+
+                                <Panel Grid.Row="3">
+                                    <views:OnlineModsView IsVisible="{Binding IsBrowsePage}"/>
+                                    <views:InstalledModsView IsVisible="{Binding IsLibraryPage}"/>
+                                    <views:UpdatesView IsVisible="{Binding IsUpdatesPage}"/>
+                                    <views:SettingsPanelView IsVisible="{Binding IsSettingsPage}"/>
+                                </Panel>
                             </Grid>
 
-                            <!-- App update -->
-                            <Border Classes="infoBar" Margin="0,0,0,12" IsVisible="{Binding IsUpdateBannerVisible}">
-                                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
-                                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                        Path="/Assets/Icons/info.svg"
-                                        Width="16"
-                                        Height="16"
-                                        Stretch="Uniform"
-                                        VerticalAlignment="Center"
-                                        HorizontalAlignment="Center"/>   
-                                    <TextBlock Grid.Column="1" Margin="12,0" FontWeight="SemiBold" VerticalAlignment="Center"
-                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[UpdateAvailableTitle]}"/>
-                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap"
-                                               Foreground="{DynamicResource Theme.TextSecondaryBrush}"
-                                               Text="{Binding AvailableUpdateText}"/>
-                                    <Button Grid.Column="3" Classes="subtle" Margin="12,0,4,0"
-                                            Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Update]}"
-                                            Command="{Binding OpenUpdatePanelCommand}"/>
-                                    <Button Grid.Column="4" Classes="ghost icon"
-                                            Command="{Binding DismissUpdateBannerCommand}"
-                                            ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Dismiss]}">
-                                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                        Path="/Assets/Icons/close.svg"
-                                        Width="24"
-                                        Height="24"
-                                        Stretch="Uniform"
-                                        VerticalAlignment="Center"
-                                        HorizontalAlignment="Center"/>   
-                                    </Button>
-                                </Grid>
-                            </Border>
+                    </Border>
+                </SplitView>
+            </Grid>
 
-                            <!-- Result of the last mod operation -->
-                            <Border Grid.Row="2" Classes="infoBar" Margin="0,0,0,12"
-                                    IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                <Grid ColumnDefinitions="Auto,*,Auto">
-                                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                        Path="/Assets/Icons/info.svg"
-                                        Width="16"
-                                        Height="16"
-                                        Stretch="Uniform"
-                                        VerticalAlignment="Center"
-                                        HorizontalAlignment="Center"   
-                                        IsVisible="{Binding IsStatusError}"/>
-                                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                        Path="/Assets/Icons/check.svg"
-                                        Width="16"
-                                        Height="16"
-                                        Stretch="Uniform"
-                                        VerticalAlignment="Center"
-                                        HorizontalAlignment="Center"
-                                        IsVisible="{Binding !IsStatusError}"/>
-                                    <TextBlock Grid.Column="1" Margin="12,0" VerticalAlignment="Center" TextWrapping="Wrap"
-                                               Text="{Binding StatusMessage}"/>
-                                    <Button Grid.Column="2" Classes="ghost icon"
-                                            Command="{Binding DismissStatusCommand}"
-                                            ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Dismiss]}">
-                                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Grid.Column="0"
-                                        Path="/Assets/Icons/close.svg"
-                                        Width="24"
-                                        Height="24"
-                                        Stretch="Uniform"
-                                        VerticalAlignment="Center"
-                                        HorizontalAlignment="Center"/>   
-                                    </Button>
-                                </Grid>
-                            </Border>
-
-                            <Panel Grid.Row="3">
-                                <views:OnlineModsView IsVisible="{Binding IsBrowsePage}"/>
-                                <views:InstalledModsView IsVisible="{Binding IsLibraryPage}"/>
-                                <views:UpdatesView IsVisible="{Binding IsUpdatesPage}"/>
-                                <views:SettingsPanelView IsVisible="{Binding IsSettingsPage}"/>
-                            </Panel>
-                        </Grid>
-
-                        <views:ModDetailsView Grid.Column="1" Width="321" 
-                            BorderBrush="{DynamicResource Theme.BorderBrush}"
-                            BorderThickness="1,0,0,0"
-                            IsVisible="{Binding !IsSettingsPage}"/>                    
-                </Grid>
-                </Border>
-            </SplitView>
-
-            <views:ConfirmRemoveModView IsVisible="{Binding IsConfirmRemoveOpen}"/>
-            <views:ConfirmDeployModView IsVisible="{Binding IsConfirmDependenciesOpen}"/>
-            <Border Classes="overlay" IsVisible="{Binding IsConfirmReplacementOpen}">
+            <views:ModDetailsView x:Name="DetailsOverlay" IsVisible="{Binding IsModDetailsOpen}"
+                                  KeyboardNavigation.TabNavigation="Cycle"/>
+            <views:ConfirmRemoveModView x:Name="RemoveOverlay" KeyboardNavigation.TabNavigation="Cycle" IsVisible="{Binding IsConfirmRemoveOpen}"/>
+            <views:ConfirmDeployModView x:Name="DependenciesOverlay" KeyboardNavigation.TabNavigation="Cycle" IsVisible="{Binding IsConfirmDependenciesOpen}"/>
+            <Border Classes="overlay" x:Name="ReplacementOverlay" KeyboardNavigation.TabNavigation="Cycle" IsVisible="{Binding IsConfirmReplacementOpen}">
                 <Border Classes="dialog" Width="400">
                     <StackPanel Spacing="16">
                         <TextBlock FontSize="20" FontWeight="SemiBold"
@@ -523,7 +550,7 @@
                     </StackPanel>
                 </Border>
             </Border>
-            <views:UpdatePanelView IsVisible="{Binding IsUpdatePanelOpen}"/>
+            <views:UpdatePanelView x:Name="UpdateOverlay" Focusable="True" KeyboardNavigation.TabNavigation="Cycle" IsVisible="{Binding IsUpdatePanelOpen}"/>
 
         </Grid>
 

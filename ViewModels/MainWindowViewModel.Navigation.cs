@@ -14,7 +14,7 @@ public enum AppPage
 public partial class MainWindowViewModel
 {
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsBrowsePage), nameof(IsLibraryPage), nameof(IsUpdatesPage), nameof(IsSettingsPage))]
+    [NotifyPropertyChangedFor(nameof(IsBrowsePage), nameof(IsLibraryPage), nameof(IsUpdatesPage), nameof(IsSettingsPage), nameof(ShowPageViewControls))]
     public partial AppPage CurrentPage { get; set; }
 
     [ObservableProperty]
@@ -24,6 +24,7 @@ public partial class MainWindowViewModel
     public bool IsLibraryPage => CurrentPage == AppPage.Library;
     public bool IsUpdatesPage => CurrentPage == AppPage.Updates;
     public bool IsSettingsPage => CurrentPage == AppPage.Settings;
+    public bool ShowPageViewControls => IsLibraryPage || IsUpdatesPage;
 
     [RelayCommand]
     private void Navigate(AppPage page)
@@ -38,7 +39,7 @@ public partial class MainWindowViewModel
 
     partial void OnCurrentPageChanged(AppPage value)
     {
-        ShowDetails();
+        CloseModDetails();
 
         if (value == AppPage.Browse)
         {

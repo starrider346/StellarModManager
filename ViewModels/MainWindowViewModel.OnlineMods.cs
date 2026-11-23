@@ -27,6 +27,19 @@ public partial class MainWindowViewModel
     public partial int SortIndex { get; set; }
 
     [ObservableProperty]
+    public partial SubmissionType BrowseType { get; set; }
+
+    public int BrowseTypeIndex
+    {
+        get => BrowseType == SubmissionType.Plugin ? 1 : 0;
+        set
+        {
+            if (value is 0 or 1)
+                BrowseType = value == 1 ? SubmissionType.Plugin : SubmissionType.Mod;
+        }
+    }
+
+    [ObservableProperty]
     public partial string SearchText { get; set; } = "";
 
     [ObservableProperty]
@@ -47,6 +60,12 @@ public partial class MainWindowViewModel
     [ObservableProperty]
     public partial double CompactCardHeight { get; private set; } = 300;
 
+    [ObservableProperty]
+    public partial double CompactImageHeight { get; private set; } = 140;
+
+    [ObservableProperty]
+    public partial double CompactMetadataHeight { get; private set; } = BrowseLayout.MetadataHeight;
+
     public bool CanPreviousBrowsePage => !IsBrowseLoading && BrowsePage > 1;
     public bool CanNextBrowsePage => !IsBrowseLoading && BrowsePage < TotalBrowsePages;
     public bool HasNoBrowseResults => !IsBrowseLoading && VisibleOnlineMods.Count == 0;
@@ -60,7 +79,11 @@ public partial class MainWindowViewModel
     {
         _browseReady = true;
         _repositoryService.ClearHashMatches();
+        foreach (var mod in OnlineMods)
+            mod.InvalidateChangelog();
+        var versionRefresh = RefreshGameVersionAsync();
         await LoadBrowsePageAsync(BrowsePage);
+        await versionRefresh;
         await RefreshInstalledCatalogAsync();
         ShowLibraryMods();
     }
@@ -83,15 +106,16 @@ public partial class MainWindowViewModel
         _browseRequest = request;
         var keyword = SearchText;
         var sort = SortIndex;
+        var type = BrowseType;
         IsBrowseLoading = true;
         try
         {
             if (delayMilliseconds > 0)
                 await Task.Delay(delayMilliseconds, request.Token);
-            var result = await _repositoryService.GetPageAsync(page, pageSize, keyword, sort, request.Token);
+            var result = await _repositoryService.GetPageAsync(page, pageSize, keyword, sort, type, request.Token);
             var lastPage = Math.Max(1, (int)((result.TotalCount + (long)pageSize - 1) / pageSize));
             if (page > lastPage)
-                result = await _repositoryService.GetPageAsync(lastPage, pageSize, keyword, sort, request.Token);
+                result = await _repositoryService.GetPageAsync(lastPage, pageSize, keyword, sort, type, request.Token);
             if (request.IsCancellationRequested || !ReferenceEquals(_browseRequest, request))
                 return;
 
@@ -110,7 +134,7 @@ public partial class MainWindowViewModel
             BrowseSelection = items.FirstOrDefault(mod => mod.Id == selectedId);
             RefreshUpdateStatuses();
             if (SelectedMod != null)
-                _ = _repositoryService.LoadChangelogAsync(SelectedMod);
+                _ = LoadDetailsReleasesAsync(SelectedMod);
             if (resetScroll || result.Page != page)
                 BrowsePageChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -142,6 +166,8 @@ public partial class MainWindowViewModel
 
     internal void SetCompactLayout(CompactPageLayout layout)
     {
+        CompactImageHeight = layout.ImageHeight;
+        CompactMetadataHeight = layout.MetadataHeight;
         CompactCardHeight = layout.CardHeight;
         if (_compactCapacity == layout.Capacity)
             return;
@@ -168,8 +194,22 @@ public partial class MainWindowViewModel
 
     partial void OnSearchTextChanged(string value) => _ = LoadBrowsePageAsync(1, 300, resetScroll: true);
 
+    partial void OnBrowseTypeChanged(SubmissionType value)
+    {
+        OnPropertyChanged(nameof(BrowseTypeIndex));
+        _browseRequest?.Cancel();
+        BrowseSelection = null;
+        VisibleOnlineMods.Clear();
+        BrowsePage = 1;
+        BrowseTotalCount = 0;
+        BrowsePageChanged?.Invoke(this, EventArgs.Empty);
+        _ = LoadBrowsePageAsync(1, resetScroll: true);
+        PersistSettings();
+    }
+
     private OnlineModInfo RegisterOnlineMod(OnlineModInfo mod)
     {
+        mod.CurrentGameVersion = _currentGameVersion;
         var existing = OnlineMods.FirstOrDefault(item => item.Id == mod.Id);
         if (existing == null)
         {
@@ -187,6 +227,7 @@ public partial class MainWindowViewModel
         existing.PublishedAt = mod.PublishedAt;
         existing.Downloads = mod.Downloads;
         existing.SetRelease(mod.Release);
+        existing.CurrentGameVersion = _currentGameVersion;
         existing.Description = mod.Description;
         var thumbnailChanged = existing.ThumbnailUrl != mod.ThumbnailUrl;
         if (releaseChanged || thumbnailChanged)
@@ -204,6 +245,8 @@ public partial class MainWindowViewModel
         {
             existing.Changelog.Clear();
             existing.ChangelogTask = null;
+            existing.IsChangelogLoading = false;
+            existing.ChangelogUnavailable = false;
         }
         return existing;
     }

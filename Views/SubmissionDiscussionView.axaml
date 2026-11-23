@@ -1,0 +1,199 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:StellarModManager.ViewModels"
+             xmlns:loc="using:StellarModManager.Services"
+             xmlns:models="using:StellarModManager.Models"
+             xmlns:views="using:StellarModManager.Views"
+             x:Class="StellarModManager.Views.SubmissionDiscussionView"
+             x:DataType="vm:MainWindowViewModel">
+    <UserControl.Styles>
+        <Style Selector="Border.discussionComment">
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Background" Value="{DynamicResource Theme.PanelBrush}"/>
+        </Style>
+        <Style Selector="Border.discussionComment.author">
+            <Setter Property="BorderBrush" Value="{DynamicResource Theme.AccentBrush}"/>
+            <Setter Property="BorderThickness" Value="2,0,0,0"/>
+        </Style>
+        <Style Selector="TextBox#CommentEditor:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderBrush" Value="{DynamicResource Theme.BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="ListBox.discussionRating ListBoxItem">
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="Margin" Value="0,0,3,2"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="AutomationProperties.Name" Value="{ReflectionBinding Label}"/>
+            <Setter Property="ToolTip.Tip" Value="{ReflectionBinding Label}"/>
+        </Style>
+        <Style Selector="ListBox.discussionRating ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Theme.SurfaceHoverBrush}"/>
+        </Style>
+        <Style Selector="ListBox.discussionRating ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Theme.SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Theme.BorderBrush}"/>
+        </Style>
+        <Style Selector="ListBox.discussionRating Path.ratingStar">
+            <Setter Property="Stroke" Value="{DynamicResource Theme.TextSecondaryBrush}"/>
+            <Setter Property="StrokeThickness" Value="1.5"/>
+            <Setter Property="StrokeJoin" Value="Round"/>
+        </Style>
+        <Style Selector="ListBox.discussionRating ListBoxItem:pointerover Path.ratingStar">
+            <Setter Property="Stroke" Value="{DynamicResource Theme.AccentBrush}"/>
+        </Style>
+        <Style Selector="ListBox.discussionRating Path.ratingStar.filled">
+            <Setter Property="Stroke" Value="{DynamicResource Theme.AccentBrush}"/>
+            <Setter Property="Fill" Value="{DynamicResource Theme.AccentBrush}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <StackPanel Spacing="12">
+        <TextBlock Classes="sectionTitle" Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionTitle]}"/>
+
+        <Button Classes="subtle" IsVisible="{Binding !HasSteamUser}" IsEnabled="{Binding !IsSteamBusy}"
+                Command="{Binding SignInWithSteamCommand}"
+                Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionSignIn]}"/>
+        <Border x:Name="Composer" IsVisible="{Binding HasSteamUser}" IsEnabled="{Binding !IsPostingDiscussion}"
+                Background="{DynamicResource Theme.PanelBrush}" BorderBrush="{DynamicResource Theme.BorderBrush}"
+                BorderThickness="1" CornerRadius="8" Padding="12">
+            <StackPanel Spacing="10">
+                <TextBlock Classes="sectionTitle" TextWrapping="Wrap" Text="{Binding DiscussionComposerLabel}"/>
+                <Button Classes="subtle" IsVisible="{Binding MyRatedComment, Converter={x:Static ObjectConverters.IsNotNull}}"
+                        Command="{Binding EditDiscussionCommentCommand}" CommandParameter="{Binding MyRatedComment}"
+                        Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionEditReview]}"/>
+                <TextBox x:Name="CommentEditor" Text="{Binding CommentDraft}" AcceptsReturn="True" MaxLength="4000"
+                         MinHeight="0" Padding="8,1" FocusAdorner="{x:Null}"
+                         TextWrapping="Wrap" PlaceholderText="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionCommentPlaceholder]}"
+                         AutomationProperties.Name="{Binding DiscussionComposerLabel}"/>
+                <StackPanel Spacing="4" IsVisible="{Binding CanRateDiscussion}">
+                    <TextBlock x:Name="RatingLabel" Classes="secondary"
+                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionRating]}"/>
+                    <ListBox x:Name="RatingMeter" Classes="discussionRating" Background="Transparent"
+                             ItemsSource="{Binding DiscussionRatings}" SelectedValueBinding="{ReflectionBinding SelectionIndex}"
+                             SelectedValue="{Binding SelectedDiscussionRating, Mode=TwoWay}"
+                             AutoScrollToSelectedItem="False" AutomationProperties.LabeledBy="{Binding #RatingLabel}">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:MainWindowViewModel+DiscussionRatingOption">
+                                <Panel>
+                                    <Path Classes="ratingStar" IsVisible="{Binding IsStar}" Width="20" Height="20" Stretch="Uniform"
+                                          Data="M 12,1.5 L 15.2,8 L 22.4,9.1 L 17.2,14.2 L 18.4,21.4 L 12,18 L 5.6,21.4 L 6.8,14.2 L 1.6,9.1 L 8.8,8 Z">
+                                        <Classes.filled>
+                                            <MultiBinding Converter="{x:Static views:SubmissionDiscussionView.IsStarFilled}">
+                                                <Binding Path="SelectionIndex"/>
+                                                <Binding Path="$parent[ListBox].((vm:MainWindowViewModel)DataContext).SelectedDiscussionRating"/>
+                                            </MultiBinding>
+                                        </Classes.filled>
+                                    </Path>
+                                    <TextBlock IsVisible="{Binding !IsStar}" FontSize="12" Text="{Binding Label}"/>
+                                </Panel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                    <Button Classes="ghost" IsVisible="{Binding HasDiscussionDraft}" Command="{Binding ResetDiscussionDraftCommand}"
+                            Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Cancel]}"/>
+                    <Button Classes="accent" MinWidth="72" HorizontalContentAlignment="Center"
+                            IsEnabled="{Binding CanPostDiscussion}" Command="{Binding PostDiscussionCommand}"
+                            Content="{Binding DiscussionPostLabel}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        <TextBlock Classes="secondary" TextWrapping="Wrap" Text="{Binding DiscussionWriteStatus}"
+                   IsVisible="{Binding DiscussionWriteStatus, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+        <ProgressBar Height="3" IsIndeterminate="True" IsVisible="{Binding IsDiscussionLoading}"/>
+        <TextBlock Classes="secondary" TextWrapping="Wrap" Text="{Binding DiscussionLoadStatus}"
+                   IsVisible="{Binding DiscussionLoadStatus, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+        <ItemsControl ItemsSource="{Binding DiscussionThreads}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="10"/></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:DiscussionThreadItem">
+                    <Border Classes="discussionComment" Classes.author="{Binding Entry.IsAuthor}">
+                        <StackPanel Spacing="8">
+                            <WrapPanel>
+                                <TextBlock FontWeight="SemiBold" Text="{Binding Entry.DisplayName}"/>
+                                <TextBlock Classes="accent" Margin="8,0,0,0" IsVisible="{Binding Entry.IsAuthor}"
+                                           Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionAuthor]}"/>
+                                <TextBlock Classes="secondary" Margin="8,0,0,0" Text="{Binding RatingLabel}"
+                                           IsVisible="{Binding RatingLabel, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                            </WrapPanel>
+                            <TextBlock Text="{Binding Entry.Comment}" TextWrapping="Wrap"/>
+                            <WrapPanel IsEnabled="{Binding !$parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).IsPostingDiscussion}">
+                                <Button Classes="ghost" IsVisible="{Binding CanEdit}" CommandParameter="{Binding Entry}"
+                                        Command="{Binding $parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).EditDiscussionCommentCommand}"
+                                        Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionEdit]}"/>
+                                <Button Classes="ghost" IsVisible="{Binding CanReply}" CommandParameter="{Binding Entry}"
+                                        Command="{Binding $parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).ReplyToDiscussionCommentCommand}"
+                                        Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionReply]}"/>
+                                <Button Classes="ghost" CommandParameter="{Binding Entry.Uuid}"
+                                        Command="{Binding $parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).RequestDeleteDiscussionCommentCommand}"
+                                        Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionDelete]}">
+                                    <Button.IsVisible>
+                                        <MultiBinding Converter="{x:Static views:SubmissionDiscussionView.CanDeleteComment}">
+                                            <Binding Path="$parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).CanDeleteDiscussionComments"/>
+                                            <Binding Path="$parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).SteamUser"/>
+                                            <Binding Path="Entry.UserUuid"/>
+                                        </MultiBinding>
+                                    </Button.IsVisible>
+                                </Button>
+                                <Button Classes="ghost" IsVisible="{Binding HasMoreReplies}" IsEnabled="{Binding !IsLoadingReplies}"
+                                        CommandParameter="{Binding}"
+                                        Command="{Binding $parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).LoadDiscussionRepliesCommand}"
+                                        Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionViewReplies]}"/>
+                            </WrapPanel>
+                            <TextBlock Classes="secondary" Text="{Binding ReplyStatus}" TextWrapping="Wrap"
+                                       IsVisible="{Binding ReplyStatus, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                            <ItemsControl ItemsSource="{Binding Replies}" Margin="16,0,0,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><StackPanel Spacing="8"/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:DiscussionReply">
+                                        <Border Classes="discussionComment" Classes.author="{Binding IsAuthor}">
+                                            <StackPanel Spacing="4">
+                                                <WrapPanel>
+                                                    <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}"/>
+                                                    <TextBlock Classes="accent" Margin="8,0,0,0" IsVisible="{Binding IsAuthor}"
+                                                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionAuthor]}"/>
+                                                </WrapPanel>
+                                                <TextBlock Text="{Binding Comment}" TextWrapping="Wrap"/>
+                                                <Button Classes="ghost" CommandParameter="{Binding Uuid}"
+                                                        IsEnabled="{Binding !$parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).IsPostingDiscussion}"
+                                                        Command="{Binding $parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).RequestDeleteDiscussionCommentCommand}"
+                                                        Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionDelete]}">
+                                                    <Button.IsVisible>
+                                                        <MultiBinding Converter="{x:Static views:SubmissionDiscussionView.CanDeleteComment}">
+                                                            <Binding Path="$parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).CanDeleteDiscussionComments"/>
+                                                            <Binding Path="$parent[views:SubmissionDiscussionView].((vm:MainWindowViewModel)DataContext).SteamUser"/>
+                                                            <Binding Path="UserUuid"/>
+                                                        </MultiBinding>
+                                                    </Button.IsVisible>
+                                                </Button>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Classes="subtle" IsVisible="{Binding HasMoreDiscussion}" IsEnabled="{Binding !IsDiscussionLoading}"
+                Command="{Binding LoadMoreDiscussionCommand}"
+                Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DiscussionLoadMore]}"/>
+    </StackPanel>
+</UserControl>

@@ -1,6 +1,7 @@
 ﻿using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using StellarModManager.Models;
 using StellarModManager.Services;
 using System;
 
@@ -29,6 +30,7 @@ public partial class MainWindowViewModel : ViewModelBase
     internal MainWindowViewModel(ModRepositoryService repository)
     {
         _repositoryService = repository;
+        LibraryMods.CollectionChanged += (_, _) => OnPropertyChanged(nameof(LibraryShortcutText));
     }
 
     public MainWindowViewModel() : this(new ModRepositoryService())
@@ -37,6 +39,7 @@ public partial class MainWindowViewModel : ViewModelBase
         LoadAvailableLanguages();
 
         var appSettings = _settingsService.LoadAppSettings();
+        _loadingSettings = true;
         SelectedTheme = appSettings.Theme;
         SelectedLanguage = appSettings.Language;
         ConfirmBeforeRemove = appSettings.ConfirmBeforeRemove;
@@ -44,7 +47,9 @@ public partial class MainWindowViewModel : ViewModelBase
         AutoCheckForModUpdates = appSettings.AutoCheckForModUpdates;
         AutoCheckForAppUpdates = appSettings.AutoCheckForAppUpdates;
         SortIndex = appSettings.CatalogSort ?? (appSettings.ModSort == 2 ? 1 : 0);
+        BrowseType = appSettings.CatalogType == "plugin" ? SubmissionType.Plugin : SubmissionType.Mod;
         IsCompactView = appSettings.CompactModList;
+        _loadingSettings = false;
 
         _themeService.ApplyTheme(_themeService.LoadTheme(SelectedTheme));
 
@@ -63,6 +68,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 mod.RefreshLocalizedText();
             RefreshDependencyStatuses();
             OnPropertyChanged(nameof(BrowsePageStatus));
+            OnPropertyChanged(nameof(LibraryShortcutText));
+            OnPropertyChanged(nameof(DiscussionScore));
+            OnPropertyChanged(nameof(DiscussionComposerLabel));
+            OnPropertyChanged(nameof(DiscussionPostLabel));
+            OnPropertyChanged(nameof(DiscussionRatings));
         };
 
         _updateCheckTimer.Tick += async (_, _) => await RefreshMods();
@@ -101,6 +111,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _checkProcessTimer.Start();
         _checkProcessTimer.Tick += (_, _) => SearchGameProcessIfNull();
         SearchGameProcessIfNull();
+        _ = RestoreSteamSessionAsync();
 
     }
 

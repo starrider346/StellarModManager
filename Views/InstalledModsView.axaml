@@ -21,7 +21,7 @@
                    IsVisible="{Binding !LibraryMods.Count}"
                    Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NoInstalledMods]}"/>
 
-        <ListBox Grid.Row="1" Classes="table" IsVisible="{Binding !IsCompactView}"
+        <ListBox Grid.Row="1" Classes="table modItems" IsVisible="{Binding !IsCompactView}"
                  Margin="0,4,0,0"
                  ItemsSource="{Binding LibraryMods}"
                  SelectedItem="{Binding LibrarySelection}">
@@ -87,7 +87,7 @@
             </ListBox.ItemTemplate>
         </ListBox>
         <!-- Compact view: card grid -->
-        <ListBox Grid.Row="1" Classes="cards" Margin="0,4,0,0"
+        <ListBox Grid.Row="1" Classes="cards modItems" Margin="0,4,0,0"
                  IsVisible="{Binding IsCompactView}"
                  ItemsSource="{Binding LibraryMods}"
                  SelectedItem="{Binding LibrarySelection}">

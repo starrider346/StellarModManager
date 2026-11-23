@@ -6,6 +6,7 @@ using System.Collections.Generic; // Lists
 using System.Collections.ObjectModel; // image collection
 using System.Linq;
 using System.Text.Json.Serialization;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace StellarModManager.Models;
@@ -20,15 +21,56 @@ public partial class OnlineModInfo : ModInfo
         OnPropertyChanged(nameof(InstallButtonText));
         OnPropertyChanged(nameof(PublishedText));
         OnPropertyChanged(nameof(DownloadsText));
+        foreach (var entry in Changelog)
+            entry.Installation?.RefreshLocalizedText();
+        NotifyCompatibilityChanged();
         RebuildTags();
     }
 
     public SubmissionType Type { get; init; }
     internal CatalogRelease? Release { get; private set; }
     internal (Guid?, string?, string?, string?) ChangelogRevision =>
-        (Release?.Uuid, Release?.Version, Release?.Sha256, Release?.Changelog);
+        (Release?.Uuid, Release?.Version, Release?.Sha256,
+            JsonSerializer.Serialize(new { Release?.Changelog, Release?.LatestTestedVersion }));
+    [ObservableProperty]
+    public partial string? CurrentGameVersion { get; set; }
+
+    public string? LatestTestedVersion => Release?.LatestTestedVersion;
+    public bool HasCompatibilityWarning => Release != null && CurrentGameVersion != null &&
+        !string.Equals(CurrentGameVersion.Trim(), LatestTestedVersion?.Trim(), StringComparison.Ordinal);
+    public bool IsGameVersionUnavailable => Release != null && CurrentGameVersion == null;
+    public string CompatibilityWarning => LocalizationService.Instance[
+        Type == SubmissionType.Plugin ? "PluginCompatibilityWarning" : "ModCompatibilityWarning"];
+    public string CompatibilityVersions => LocalizationService.Instance.Format("CompatibilityVersions",
+        CurrentGameVersion ?? LocalizationService.Instance["GameVersionUnavailable"],
+        string.IsNullOrWhiteSpace(LatestTestedVersion) ? LocalizationService.Instance["TestedVersionNotSpecified"] : LatestTestedVersion);
+    public string CompatibilityTooltip => CompatibilityWarning + "\n" + CompatibilityVersions;
+
+    partial void OnCurrentGameVersionChanged(string? value) => NotifyCompatibilityChanged();
+
+    private void NotifyCompatibilityChanged()
+    {
+        OnPropertyChanged(nameof(LatestTestedVersion));
+        OnPropertyChanged(nameof(HasCompatibilityWarning));
+        OnPropertyChanged(nameof(IsGameVersionUnavailable));
+        OnPropertyChanged(nameof(CompatibilityWarning));
+        OnPropertyChanged(nameof(CompatibilityVersions));
+        OnPropertyChanged(nameof(CompatibilityTooltip));
+    }
+
+    internal int ChangelogGeneration { get; private set; }
+
+    internal void InvalidateChangelog()
+    {
+        ChangelogGeneration++;
+        ChangelogTask = null;
+        IsChangelogLoading = false;
+        ChangelogUnavailable = false;
+    }
+
     public bool CanInstall => Release?.IsInstallable == true;
     public bool CanStartInstall => CanInstall && !IsInstalling;
+    public bool ShowQuickInstall => CanStartInstall && ShowNoState;
     public string OptionalDependencies => string.Join(", ", Release?.Dependencies.Soft.Select(item => item.Name) ?? []);
     public bool HasOptionalDependencies => OptionalDependencies.Length > 0;
 
@@ -46,6 +88,7 @@ public partial class OnlineModInfo : ModInfo
     internal void SetRelease(CatalogRelease? release)
     {
         Release = release;
+        NotifyCompatibilityChanged();
         Version = release?.Version ?? "";
         Needs = release?.Dependencies.Hard.Select(item => item.Uuid.ToString()).ToList() ?? [];
         RepoUrl = null;
@@ -57,6 +100,7 @@ public partial class OnlineModInfo : ModInfo
 
         OnPropertyChanged(nameof(CanInstall));
         OnPropertyChanged(nameof(CanStartInstall));
+        OnPropertyChanged(nameof(ShowQuickInstall));
         OnPropertyChanged(nameof(OptionalDependencies));
         OnPropertyChanged(nameof(HasOptionalDependencies));
         OnPropertyChanged(nameof(RepoUrl));
@@ -113,6 +157,12 @@ public partial class OnlineModInfo : ModInfo
     public Task? ChangelogTask { get; set; }
 
     [ObservableProperty]
+    public partial bool IsChangelogLoading { get; set; }
+
+    [ObservableProperty]
+    public partial bool ChangelogUnavailable { get; set; }
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PublishedText))]
     public partial DateTime? PublishedAt { get; set; }
 
@@ -138,19 +188,19 @@ public partial class OnlineModInfo : ModInfo
     }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowInstalledState), nameof(ShowUpdateState), nameof(ShowNoState), nameof(CanStartInstall))]
+    [NotifyPropertyChangedFor(nameof(ShowInstalledState), nameof(ShowUpdateState), nameof(ShowNoState), nameof(CanStartInstall), nameof(ShowQuickInstall))]
     public partial bool IsInstalling { get; set; }
 
     [ObservableProperty]
     public partial double DownloadProgress { get; set; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowInstalledState), nameof(ShowUpdateState), nameof(ShowNoState))]
+    [NotifyPropertyChangedFor(nameof(ShowInstalledState), nameof(ShowUpdateState), nameof(ShowNoState), nameof(ShowQuickInstall))]
     public partial bool IsInstalled { get; set; }
 
     // Set when the installed copy is older than this version
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowInstalledState), nameof(ShowUpdateState))]
+    [NotifyPropertyChangedFor(nameof(ShowInstalledState), nameof(ShowUpdateState), nameof(ShowQuickInstall))]
     public partial bool HasUpdate { get; set; }
 
     // State column: exactly one of these (or IsInstalling) is shown

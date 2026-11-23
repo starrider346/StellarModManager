@@ -50,5 +50,6 @@
         <SolidColorBrush x:Key="Theme.DangerPressedBrush" Color="#9A2016"/>
 
         <x:String x:Key="Theme.IconCss">.icon-fill { fill: #FFFFFF; } .icon-stroke { stroke: #FFFFFF; }</x:String>
+        <x:String x:Key="Theme.AccentIconCss">.icon-fill { fill: #000000; } .icon-stroke { stroke: #000000; }</x:String>
     </Application.Resources>
 </Application>

@@ -16,6 +16,7 @@ public partial class MainWindowViewModel
             code is null ? "" : LocalizationService.Instance.GetLanguageDisplayName(code));
 
     private readonly ThemeService _themeService = new();
+    private bool _loadingSettings;
 
     public string AppVersion { get; } = Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
@@ -49,6 +50,9 @@ public partial class MainWindowViewModel
     // Settings are saved as soon as they change
     private void PersistSettings()
     {
+        if (_loadingSettings)
+            return;
+
         _settingsService.SaveAppSettings(new AppSettings
         {
             Language = SelectedLanguage,
@@ -58,6 +62,7 @@ public partial class MainWindowViewModel
             AutoCheckForModUpdates = AutoCheckForModUpdates,
             AutoCheckForAppUpdates = AutoCheckForAppUpdates,
             CatalogSort = SortIndex,
+            CatalogType = BrowseType == SubmissionType.Plugin ? "plugin" : "mod",
             CompactModList = IsCompactView
         });
     }
