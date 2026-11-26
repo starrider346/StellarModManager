@@ -31,7 +31,8 @@ jobs:
           dotnet publish StellarModManager.csproj -c Release -r win-x64 `
             --self-contained true -p:PublishSingleFile=true `
             -p:DebugType=None -p:DebugSymbols=false `
-            -p:Version=$env:VERSION "-p:StellarModsApiOrigin=$env:STELLARMODS_API_ORIGIN" -o App
+            "-p:Version=$env:VERSION" "-p:AppUpdateRepository=$env:GITHUB_REPOSITORY" `
+            "-p:StellarModsApiOrigin=$env:STELLARMODS_API_ORIGIN" -o App
           Copy-Item License.txt, PostInfo.txt App\
           Copy-Item Assets\icon.ico App\icon.ico
 

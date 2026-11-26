@@ -17,6 +17,7 @@
 	<ItemGroup>
 		<AvaloniaResource Include="Assets\**" />
 		<AssemblyMetadata Include="StellarModsApiOrigin" Value="$(StellarModsApiOrigin)" />
+		<AssemblyMetadata Include="AppUpdateRepository" Value="$(AppUpdateRepository)" Condition="'$(AppUpdateRepository)' != ''" />
 	</ItemGroup>
 
 	<ItemGroup>

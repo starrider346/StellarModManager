@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Reflection;
@@ -11,18 +12,22 @@ namespace StellarModManager.Services;
 
 public class AppUpdatingService
 {
-    private const string RepoApi = "https://api.github.com/repos/jollyname/StellarModManager/releases/latest";
+    private const string RepoApi = "https://api.github.com/repos";
+    private const string DefaultUpdateRepository = "jollyname/StellarModManager";
 
     public async Task<UpdateInfo?> CheckAsync()
     {
         using var client = new HttpClient();
         client.DefaultRequestHeaders.UserAgent.ParseAdd("StellarModManager");
 
-        var release = await client.GetFromJsonAsync<GitHubRelease>(RepoApi);
+        var assembly = typeof(AppUpdatingService).Assembly;
+        var repository = assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => attribute.Key == "AppUpdateRepository")?.Value ?? DefaultUpdateRepository;
+        var release = await client.GetFromJsonAsync<GitHubRelease>($"{RepoApi}/{repository}/releases/latest");
         if (release is null) return null;
 
         var latest = Version.Parse(release.tag_name.TrimStart('v'));
-        var current = Assembly.GetExecutingAssembly().GetName().Version!;
+        var current = assembly.GetName().Version!;
 
         if (latest <= current) return null;
 
