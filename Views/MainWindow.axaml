@@ -347,6 +347,20 @@
                                     </Grid>
                                 </Button>
 
+                                <Button Classes="nav" Classes.selected="{Binding IsLogsPage}"
+                                        Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Logs}"
+                                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLogs]}"
+                                        AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLogs]}">
+                                    <Grid ColumnDefinitions="44,*">
+                                        <Border Classes="pill"/>
+                                        <svg:Svg Css="{DynamicResource Theme.IconCss}" Path="/Assets/Icons/logs.svg"
+                                                 Width="19" Height="19" Stretch="Uniform"
+                                                 VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="navLabel" VerticalAlignment="Center"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLogs]}"/>
+                                    </Grid>
+                                </Button>
+
                             </StackPanel>
 
                             <Button Grid.Row="3" Classes="ghost" Margin="4,0,4,8" Padding="12,10"
@@ -411,6 +425,8 @@
                                                    Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLibrary]}"/>
                                         <TextBlock Classes="pageTitle" IsVisible="{Binding IsUpdatesPage}"
                                                    Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavUpdates]}"/>
+                                        <TextBlock Classes="pageTitle" IsVisible="{Binding IsLogsPage}"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLogs]}"/>
                                         <TextBlock Classes="pageTitle" IsVisible="{Binding IsSettingsPage}"
                                                    Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SettingsTitle]}"/>
                                     </Panel>
@@ -518,6 +534,8 @@
                                     <views:OnlineModsView IsVisible="{Binding IsBrowsePage}"/>
                                     <views:InstalledModsView IsVisible="{Binding IsLibraryPage}"/>
                                     <views:UpdatesView IsVisible="{Binding IsUpdatesPage}"/>
+                                    <views:LogsView x:Name="LogPage" DataContext="{Binding Logs}"
+                                                    IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsLogsPage}"/>
                                     <views:SettingsPanelView IsVisible="{Binding IsSettingsPage}"/>
                                 </Panel>
                             </Grid>

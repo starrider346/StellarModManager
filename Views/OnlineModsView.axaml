@@ -10,6 +10,29 @@
              x:Class="StellarModManager.Views.OnlineModsView"
              x:DataType="vm:MainWindowViewModel">
 
+    <UserControl.Styles>
+        <Style Selector="ToggleButton.categoryFilter">
+            <Setter Property="Width" Value="27"/>
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextSecondaryBrush}"/>
+        </Style>
+        <Style Selector="ToggleButton.categoryFilter:checked /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Theme.SurfaceHoverBrush}"/>
+        </Style>
+        <Style Selector="ToggleButton.categoryInclude:checked /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{DynamicResource Theme.SuccessBrush}"/>
+        </Style>
+        <Style Selector="ToggleButton.categoryExclude:checked /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{DynamicResource Theme.DangerBrush}"/>
+        </Style>
+    </UserControl.Styles>
+
     <UserControl.Resources>
         <DataTemplate x:Key="CatalogOptionTemplate" x:DataType="x:String">
             <TextBlock>
@@ -20,6 +43,46 @@
                     </MultiBinding>
                 </TextBlock.Text>
             </TextBlock>
+        </DataTemplate>
+        <DataTemplate x:Key="CategoryFiltersTemplate" x:DataType="vm:MainWindowViewModel">
+            <ItemsControl ItemsSource="{Binding BrowseCategories}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:BrowseCategoryFilterViewModel">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="3" Margin="0,1">
+                            <TextBlock x:Name="CategoryName" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                                <TextBlock.Text>
+                                    <MultiBinding Converter="{x:Static views:OnlineModsView.CatalogOptionText}">
+                                        <Binding Path="LabelKey"/>
+                                        <Binding Source="{x:Static loc:LocalizationService.Instance}" Path="CurrentLanguage"/>
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                            </TextBlock>
+                            <ToggleButton Grid.Column="1" Classes="categoryFilter categoryInclude"
+                                          IsChecked="{Binding IsIncluded, Mode=OneWay}" Command="{Binding ToggleIncludeCommand}"
+                                          ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[BrowseCategoryInclude]}">
+                                <AutomationProperties.Name>
+                                    <MultiBinding StringFormat="{}{0} {1}">
+                                        <Binding Source="{x:Static loc:LocalizationService.Instance}" Path="[BrowseCategoryInclude]"/>
+                                        <Binding Path="#CategoryName.Text"/>
+                                    </MultiBinding>
+                                </AutomationProperties.Name>
+                                <PathIcon Width="13" Height="13" Data="M 2,7 L 5,10 L 11,4 L 12,5 L 5,12 L 1,8 Z"/>
+                            </ToggleButton>
+                            <ToggleButton Grid.Column="2" Classes="categoryFilter categoryExclude"
+                                          IsChecked="{Binding IsExcluded, Mode=OneWay}" Command="{Binding ToggleExcludeCommand}"
+                                          ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[BrowseCategoryExclude]}">
+                                <AutomationProperties.Name>
+                                    <MultiBinding StringFormat="{}{0} {1}">
+                                        <Binding Source="{x:Static loc:LocalizationService.Instance}" Path="[BrowseCategoryExclude]"/>
+                                        <Binding Path="#CategoryName.Text"/>
+                                    </MultiBinding>
+                                </AutomationProperties.Name>
+                                <PathIcon Width="13" Height="13" Data="F0 M 7,0 A 7,7 0 1 0 7,14 A 7,7 0 1 0 7,0 Z M 7,1.4 A 5.6,5.6 0 1 1 7,12.6 A 5.6,5.6 0 1 1 7,1.4 Z M 2.5,3.5 L 3.5,2.5 L 11.5,10.5 L 10.5,11.5 Z"/>
+                            </ToggleButton>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </DataTemplate>
     </UserControl.Resources>
 
@@ -82,19 +145,43 @@
             </Button>
         </Grid>
 
-        <Button x:Name="LibraryShortcut" Grid.Row="1" Classes="subtle libraryShortcut"
-                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalAlignment="Top"
-                ToolTip.Tip="{Binding LibraryShortcutText}"
-                Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Library}">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <StackPanel Spacing="3">
-                    <TextBlock Classes="sectionTitle"
-                               Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLibrary]}"/>
-                    <TextBlock Classes="secondary" Text="{Binding LibraryShortcutText}" TextTrimming="CharacterEllipsis"/>
-                </StackPanel>
-                <TextBlock Grid.Column="1" Classes="accent" Text="→" VerticalAlignment="Center" FontSize="16"/>
-            </Grid>
-        </Button>
+        <ScrollViewer x:Name="BrowseSidebar" Grid.Row="1"
+                      HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="8">
+                <Border x:Name="CategoryPanel" Padding="10"
+                        Background="{DynamicResource Theme.SurfaceBrush}"
+                        BorderBrush="{DynamicResource Theme.BorderBrush}" BorderThickness="1" CornerRadius="8">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="sectionTitle"
+                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[BrowseCategory]}"/>
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource CategoryFiltersTemplate}"/>
+                    </StackPanel>
+                </Border>
+                <Button x:Name="CategoryMenu" Classes="subtle"
+                        Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[BrowseCategory]}">
+                    <Button.Flyout>
+                        <Flyout>
+                            <ContentControl MinWidth="184"
+                                            Content="{Binding #CategoryMenu.((vm:MainWindowViewModel)DataContext)}"
+                                            ContentTemplate="{StaticResource CategoryFiltersTemplate}"/>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <Button x:Name="LibraryShortcut" Classes="subtle libraryShortcut"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalAlignment="Top"
+                        ToolTip.Tip="{Binding LibraryShortcutText}"
+                        Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Library}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <StackPanel Spacing="3">
+                            <TextBlock Classes="sectionTitle"
+                                       Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLibrary]}"/>
+                            <TextBlock Classes="secondary" Text="{Binding LibraryShortcutText}" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Classes="accent" Text="→" VerticalAlignment="Center" FontSize="16"/>
+                    </Grid>
+                </Button>
+            </StackPanel>
+        </ScrollViewer>
 
         <Grid Grid.Row="2" RowDefinitions="Auto,*,Auto">
 

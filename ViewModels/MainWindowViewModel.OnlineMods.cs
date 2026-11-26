@@ -15,6 +15,7 @@ public partial class MainWindowViewModel
 {
     public ObservableCollection<OnlineModInfo> OnlineMods { get; } = [];
     public ObservableCollection<OnlineModInfo> VisibleOnlineMods { get; } = [];
+    public IReadOnlyList<BrowseCategoryFilterViewModel> BrowseCategories { get; }
     private readonly ModRepositoryService _repositoryService;
     private CancellationTokenSource? _browseRequest;
     private bool _browseReady;
@@ -107,15 +108,17 @@ public partial class MainWindowViewModel
         var keyword = SearchText;
         var sort = SortIndex;
         var type = BrowseType;
+        var includeTags = BrowseCategories.Where(category => category.IsIncluded).Select(category => category.Tag).ToArray();
+        var excludeTags = BrowseCategories.Where(category => category.IsExcluded).Select(category => category.Tag).ToArray();
         IsBrowseLoading = true;
         try
         {
             if (delayMilliseconds > 0)
                 await Task.Delay(delayMilliseconds, request.Token);
-            var result = await _repositoryService.GetPageAsync(page, pageSize, keyword, sort, type, request.Token);
+            var result = await _repositoryService.GetPageAsync(page, pageSize, keyword, sort, type, includeTags, excludeTags, request.Token);
             var lastPage = Math.Max(1, (int)((result.TotalCount + (long)pageSize - 1) / pageSize));
             if (page > lastPage)
-                result = await _repositoryService.GetPageAsync(lastPage, pageSize, keyword, sort, type, request.Token);
+                result = await _repositoryService.GetPageAsync(lastPage, pageSize, keyword, sort, type, includeTags, excludeTags, request.Token);
             if (request.IsCancellationRequested || !ReferenceEquals(_browseRequest, request))
                 return;
 
@@ -197,6 +200,12 @@ public partial class MainWindowViewModel
     partial void OnBrowseTypeChanged(SubmissionType value)
     {
         OnPropertyChanged(nameof(BrowseTypeIndex));
+        ReloadBrowseResults();
+        PersistSettings();
+    }
+
+    private void ReloadBrowseResults()
+    {
         _browseRequest?.Cancel();
         BrowseSelection = null;
         VisibleOnlineMods.Clear();
@@ -204,7 +213,6 @@ public partial class MainWindowViewModel
         BrowseTotalCount = 0;
         BrowsePageChanged?.Invoke(this, EventArgs.Empty);
         _ = LoadBrowsePageAsync(1, resetScroll: true);
-        PersistSettings();
     }
 
     private OnlineModInfo RegisterOnlineMod(OnlineModInfo mod)

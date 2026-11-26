@@ -16,6 +16,7 @@ public partial class MainWindowViewModel
     public IReadOnlyList<GameInstallationInfo> DetectedGameInstalls { get; } = GameLocatorService.Locate();
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLogsPage))]
     public partial bool SetupRequired { get; set; } = true;
 
     [ObservableProperty]
@@ -29,7 +30,11 @@ public partial class MainWindowViewModel
 
     private readonly MelonLoaderInstaller _melonLoaderInstaller = new();
 
-    partial void OnGamePathChanged(string value) => InstallMelonLoaderCommand.NotifyCanExecuteChanged();
+    partial void OnGamePathChanged(string value)
+    {
+        InstallMelonLoaderCommand.NotifyCanExecuteChanged();
+        Logs.SetGamePath(value);
+    }
 
     partial void OnIsMelonLoaderValidChanged(bool value)
     {
@@ -110,6 +115,7 @@ public partial class MainWindowViewModel
         IsMelonLoaderValid = CheckMelonLoader(path);
         if (IsMelonLoaderValid)
         {
+            ApplyMelonLoaderConsoleSetting();
             OpenGameProfiles(path, _settingsService.LoadGameProfile()?.GamePath);
             _settingsService.SaveGameProfile(new GameProfile { GamePath = path });
             SearchGameProcessIfNull();
@@ -141,6 +147,7 @@ public partial class MainWindowViewModel
 
             if (IsMelonLoaderValid)
             {
+                ApplyMelonLoaderConsoleSetting();
                 OpenGameProfiles(GamePath, _settingsService.LoadGameProfile()?.GamePath);
                 _settingsService.SaveGameProfile(new GameProfile { GamePath = GamePath });
             }

@@ -1,0 +1,123 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:StellarModManager.Services"
+             xmlns:models="using:StellarModManager.Models"
+             xmlns:vm="using:StellarModManager.ViewModels"
+             xmlns:svg="clr-namespace:Avalonia.Svg.Skia;assembly=Svg.Controls.Skia.Avalonia"
+             x:Class="StellarModManager.Views.LogsView"
+             x:DataType="vm:LogViewerViewModel">
+    <UserControl.Styles>
+        <Style Selector="RadioButton.logFilter">
+            <Setter Property="MinWidth" Value="48"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Padding" Value="12,4"/>
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextSecondaryBrush}"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Name="FilterBackground" CornerRadius="5" BorderThickness="1" Padding="{TemplateBinding Padding}"
+                            BorderBrush="{DynamicResource Theme.BorderBrush}" Background="Transparent">
+                        <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="RadioButton.logFilter:pointerover /template/ Border#FilterBackground">
+            <Setter Property="Background" Value="{DynamicResource Theme.SurfaceHoverBrush}"/>
+        </Style>
+        <Style Selector="RadioButton.logFilter:checked">
+            <Setter Property="Foreground" Value="{DynamicResource Theme.AccentBrush}"/>
+        </Style>
+        <Style Selector="RadioButton.logFilter:checked /template/ Border#FilterBackground">
+            <Setter Property="Background" Value="{DynamicResource Theme.SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Theme.AccentBrush}"/>
+        </Style>
+        <Style Selector="ListBox.logEntries ListBoxItem">
+            <Setter Property="Padding" Value="10,2"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="SelectableTextBlock.logEntry">
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextSecondaryBrush}"/>
+        </Style>
+        <Style Selector="SelectableTextBlock.logEntry.warning">
+            <Setter Property="Foreground" Value="#FFB55E"/>
+        </Style>
+        <Style Selector="SelectableTextBlock.logEntry.error">
+            <Setter Property="Foreground" Value="#FF8383"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="8" Margin="0,0,0,16">
+        <Grid ColumnDefinitions="*,230" ColumnSpacing="10">
+            <TextBox x:Name="SearchBox" Text="{Binding SearchText, Mode=TwoWay}"
+                     MinHeight="36" VerticalContentAlignment="Center"
+                     PlaceholderText="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[LogSearch]}"
+                     AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[LogSearch]}">
+                <TextBox.InnerLeftContent>
+                    <svg:Svg Css="{DynamicResource Theme.IconCss}" Path="/Assets/Icons/search.svg"
+                             Width="16" Height="16" Margin="9,0,0,0" VerticalAlignment="Center"/>
+                </TextBox.InnerLeftContent>
+            </TextBox>
+            <ComboBox x:Name="FilePicker" Grid.Column="1" MinHeight="36" HorizontalAlignment="Stretch"
+                      ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile, Mode=TwoWay}"
+                      AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[LogFile]}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:LogFile">
+                        <Panel>
+                            <TextBlock IsVisible="{Binding IsLatest}"
+                                       Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[LogLatest]}"/>
+                            <TextBlock IsVisible="{Binding !IsLatest}" Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                        </Panel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <RadioButton Classes="logFilter" GroupName="LogLevel" IsChecked="{Binding IsAllSelected, Mode=OneWay}"
+                             Command="{Binding SelectLevelCommand}" CommandParameter="{x:Static models:LogLevel.All}"
+                             Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[LogAll]}"/>
+                <RadioButton Classes="logFilter" GroupName="LogLevel" IsChecked="{Binding IsErrorSelected, Mode=OneWay}"
+                             Command="{Binding SelectLevelCommand}" CommandParameter="{x:Static models:LogLevel.Error}"
+                             Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[LogError]}"/>
+                <RadioButton Classes="logFilter" GroupName="LogLevel" IsChecked="{Binding IsWarningSelected, Mode=OneWay}"
+                             Command="{Binding SelectLevelCommand}" CommandParameter="{x:Static models:LogLevel.Warning}"
+                             Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[LogWarn]}"/>
+                <RadioButton Classes="logFilter" GroupName="LogLevel" IsChecked="{Binding IsInfoSelected, Mode=OneWay}"
+                             Command="{Binding SelectLevelCommand}" CommandParameter="{x:Static models:LogLevel.Info}"
+                             Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[LogInfo]}"/>
+            </StackPanel>
+
+            <TextBlock x:Name="CopyStatus" Grid.Column="1" Classes="secondary" VerticalAlignment="Center"
+                       HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"
+                       AutomationProperties.LiveSetting="Polite"/>
+            <Button x:Name="CopyButton" Grid.Column="2" Classes="ghost" Click="CopyLog" IsEnabled="{Binding CanCopy}"
+                    Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[LogCopy]}"/>
+        </Grid>
+
+        <TextBlock Grid.Row="2" Classes="secondary" Text="{Binding StatusText}" TextWrapping="Wrap"
+                   IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+        <Border Grid.Row="3" Background="{DynamicResource Theme.BackgroundBrush}" ClipToBounds="True"
+                BorderBrush="{DynamicResource Theme.BorderBrush}" BorderThickness="1" CornerRadius="8">
+            <ListBox x:Name="Entries" Classes="logEntries" Background="Transparent" BorderThickness="0" Padding="0"
+                     ItemsSource="{Binding VisibleEntries}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLogs]}">
+                <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <VirtualizingStackPanel/>
+                    </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:LogEntry">
+                        <SelectableTextBlock Classes="logEntry" Classes.error="{Binding IsError}" Classes.warning="{Binding IsWarning}"
+                                             ContextFlyout="{x:Null}"
+                                             FontFamily="Cascadia Mono, Menlo, Consolas, monospace" FontSize="13"
+                                             LineHeight="19" TextWrapping="Wrap" Text="{Binding Text}"/>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+    </Grid>
+</UserControl>

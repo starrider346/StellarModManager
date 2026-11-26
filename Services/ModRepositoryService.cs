@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Reflection;
 using System.Threading;
@@ -62,7 +63,7 @@ public class ModRepositoryService
     }
 
     internal async Task<CatalogPage> GetPageAsync(int page, int pageSize, string keyword, int sortIndex,
-        SubmissionType type,
+        SubmissionType type, IReadOnlyList<string> includeTags, IReadOnlyList<string> excludeTags,
         CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(page, 1);
@@ -70,7 +71,12 @@ public class ModRepositoryService
         var sort = sortIndex switch { 1 => "Name", 2 => "Downloads", _ => "ReleaseTime" };
         var order = sortIndex == 1 ? "ascending" : "descending";
         var submissionType = type == SubmissionType.Plugin ? "plugin" : "mod";
-        var query = $"keyword={Uri.EscapeDataString(keyword.Trim())}&sort={sort}&sort_order={order}&type={submissionType}";
+        var queryBuilder = new StringBuilder($"keyword={Uri.EscapeDataString(keyword.Trim())}&sort={sort}&sort_order={order}&type={submissionType}");
+        foreach (var tag in includeTags)
+            queryBuilder.Append("&include_tag=").Append(Uri.EscapeDataString(tag));
+        foreach (var tag in excludeTags)
+            queryBuilder.Append("&exclude_tag=").Append(Uri.EscapeDataString(tag));
+        var query = queryBuilder.ToString();
         var apiPageSize = Math.Min(pageSize, PageSize);
         var offset = (page - 1L) * pageSize;
         var cursor = offset;

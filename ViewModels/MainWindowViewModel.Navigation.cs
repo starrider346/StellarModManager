@@ -8,13 +8,14 @@ public enum AppPage
     Browse,
     Library,
     Updates,
-    Settings
+    Settings,
+    Logs
 }
 
 public partial class MainWindowViewModel
 {
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsBrowsePage), nameof(IsLibraryPage), nameof(IsUpdatesPage), nameof(IsSettingsPage), nameof(ShowPageViewControls))]
+    [NotifyPropertyChangedFor(nameof(IsBrowsePage), nameof(IsLibraryPage), nameof(IsUpdatesPage), nameof(IsSettingsPage), nameof(IsLogsPage), nameof(ShowPageViewControls))]
     public partial AppPage CurrentPage { get; set; }
 
     [ObservableProperty]
@@ -24,7 +25,10 @@ public partial class MainWindowViewModel
     public bool IsLibraryPage => CurrentPage == AppPage.Library;
     public bool IsUpdatesPage => CurrentPage == AppPage.Updates;
     public bool IsSettingsPage => CurrentPage == AppPage.Settings;
+    public bool IsLogsPage => CurrentPage == AppPage.Logs && !SetupRequired;
     public bool ShowPageViewControls => IsLibraryPage || IsUpdatesPage;
+
+    public LogViewerViewModel Logs { get; } = new();
 
     [RelayCommand]
     private void Navigate(AppPage page)

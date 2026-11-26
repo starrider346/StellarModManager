@@ -414,8 +414,7 @@
         <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
     <Style Selector="Button.libraryShortcut.rail">
-        <Setter Property="Width" Value="192"/>
-        <Setter Property="Margin" Value="16,0,0,0"/>
+        <Setter Property="Margin" Value="0"/>
         <Setter Property="Padding" Value="12,11"/>
     </Style>
 

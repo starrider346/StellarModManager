@@ -30,6 +30,17 @@ public partial class MainWindowViewModel : ViewModelBase
     internal MainWindowViewModel(ModRepositoryService repository)
     {
         _repositoryService = repository;
+        BrowseCategories =
+        [
+            new("part", "BrowseCategoryPart", ReloadBrowseResults),
+            new("logistics", "BrowseCategoryLogistics", ReloadBrowseResults),
+            new("power", "BrowseCategoryPower", ReloadBrowseResults),
+            new("propulsion", "BrowseCategoryPropulsion", ReloadBrowseResults),
+            new("utility", "BrowseCategoryUtility", ReloadBrowseResults),
+            new("environment", "BrowseCategoryEnvironment", ReloadBrowseResults),
+            new("library", "NavLibrary", ReloadBrowseResults),
+            new("optimization", "BrowseCategoryOptimization", ReloadBrowseResults)
+        ];
         LibraryMods.CollectionChanged += (_, _) => OnPropertyChanged(nameof(LibraryShortcutText));
     }
 
@@ -46,6 +57,7 @@ public partial class MainWindowViewModel : ViewModelBase
         AutoDeployDependencies = appSettings.AutoDeployDependencies;
         AutoCheckForModUpdates = appSettings.AutoCheckForModUpdates;
         AutoCheckForAppUpdates = appSettings.AutoCheckForAppUpdates;
+        HideMelonLoaderConsole = appSettings.HideMelonLoaderConsole;
         SortIndex = appSettings.CatalogSort ?? (appSettings.ModSort == 2 ? 1 : 0);
         BrowseType = appSettings.CatalogType == "plugin" ? SubmissionType.Plugin : SubmissionType.Mod;
         IsCompactView = appSettings.CompactModList;
@@ -91,6 +103,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 IsMelonLoaderValid = true;
                 SetupRequired = false;
 
+                ApplyMelonLoaderConsoleSetting();
                 OpenGameProfiles(profile.GamePath, profile.GamePath);
                 _ = RefreshMods();
             }

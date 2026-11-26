@@ -60,6 +60,8 @@
                               IsChecked="{Binding AutoCheckForModUpdates}"/>
                     <CheckBox Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[AutoCheckAppUpdatesLabel]}"
                               IsChecked="{Binding AutoCheckForAppUpdates}"/>
+                    <CheckBox Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[HideMelonLoaderConsoleLabel]}"
+                              IsChecked="{Binding HideMelonLoaderConsole}"/>
                 </StackPanel>
             </Border>
 

@@ -4,7 +4,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StellarModManager.Models;
 using StellarModManager.Services;
+using System;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Reflection;
 
 namespace StellarModManager.ViewModels;
@@ -41,6 +43,9 @@ public partial class MainWindowViewModel
     [ObservableProperty]
     public partial bool AutoCheckForModUpdates { get; set; } = true;
 
+    [ObservableProperty]
+    public partial bool HideMelonLoaderConsole { get; set; } = true;
+
     // Mod lists show a three-column card grid instead of the table
     [ObservableProperty]
     public partial bool IsCompactView { get; set; }
@@ -61,6 +66,7 @@ public partial class MainWindowViewModel
             AutoDeployDependencies = AutoDeployDependencies,
             AutoCheckForModUpdates = AutoCheckForModUpdates,
             AutoCheckForAppUpdates = AutoCheckForAppUpdates,
+            HideMelonLoaderConsole = HideMelonLoaderConsole,
             CatalogSort = SortIndex,
             CatalogType = BrowseType == SubmissionType.Plugin ? "plugin" : "mod",
             CompactModList = IsCompactView
@@ -84,6 +90,30 @@ public partial class MainWindowViewModel
     partial void OnConfirmBeforeRemoveChanged(bool value) => PersistSettings();
 
     partial void OnAutoDeployDependenciesChanged(bool value) => PersistSettings();
+
+    partial void OnHideMelonLoaderConsoleChanged(bool value)
+    {
+        if (_loadingSettings)
+            return;
+
+        PersistSettings();
+        ApplyMelonLoaderConsoleSetting();
+    }
+
+    private void ApplyMelonLoaderConsoleSetting()
+    {
+        if (!IsMelonLoaderValid)
+            return;
+
+        try
+        {
+            MelonLoaderConfig.SetConsoleHidden(GamePath, HideMelonLoaderConsole);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            ReportError("StatusMelonLoaderConfigFailed", ex.Message);
+        }
+    }
 
     partial void OnIsCompactViewChanged(bool value)
     {

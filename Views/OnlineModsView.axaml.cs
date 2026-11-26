@@ -84,9 +84,13 @@ public partial class OnlineModsView : UserControl
     private void UpdateLibraryShortcutLayout()
     {
         var showRail = BrowseLayoutRoot.Bounds.Width >= LibraryRailBreakpoint;
-        Grid.SetColumn(LibraryShortcut, showRail ? 1 : 0);
-        Grid.SetRow(LibraryShortcut, showRail ? 0 : 1);
-        Grid.SetRowSpan(LibraryShortcut, showRail ? 3 : 1);
+        Grid.SetColumn(BrowseSidebar, showRail ? 1 : 0);
+        Grid.SetRow(BrowseSidebar, showRail ? 0 : 1);
+        Grid.SetRowSpan(BrowseSidebar, showRail ? 3 : 1);
+        BrowseSidebar.Width = showRail ? 208 : double.NaN;
+        BrowseSidebar.Margin = showRail ? new Thickness(16, 0, 0, 0) : default;
+        CategoryPanel.IsVisible = showRail;
+        CategoryMenu.IsVisible = !showRail;
         LibraryShortcut.Classes.Set("rail", showRail);
     }
 
