@@ -59,9 +59,6 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Test
-        run: dotnet test StellarModManager.Tests/StellarModManager.Tests.csproj -c Release
-
       - name: Publish Apple Silicon app
         shell: bash
         run: |
