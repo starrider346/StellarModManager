@@ -111,6 +111,37 @@ public class ModRepositoryService
         return submission is { Type: "mod" or "plugin" } ? submission.ToOnline() : null;
     }
 
+    internal async Task<OnlineModInfo?> GetReleaseAsync(Guid submissionUuid, Guid releaseUuid, CancellationToken cancellationToken)
+    {
+        var submission = await GetSubmissionAsync(submissionUuid, cancellationToken);
+        if (submission == null || submission.Id != submissionUuid.ToString())
+            return null;
+        if (submission.Release?.Uuid == releaseUuid)
+            return submission;
+
+        try
+        {
+            for (var page = 1; ; page++)
+            {
+                var result = await ReadAsync<ReleasePage>(
+                    $"/api/submissions/{submissionUuid}/releases?page={page}&page_size={PageSize}", cancellationToken);
+                var release = result.Items.FirstOrDefault(item => item.Uuid == releaseUuid);
+                if (release != null)
+                {
+                    submission.SetRelease(release);
+                    return submission;
+                }
+
+                if (result.Items.Count == 0 || result.PageSize <= 0 || page * (long)result.PageSize >= result.TotalCount)
+                    return null;
+            }
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
     internal async Task<(List<OnlineModInfo> ToInstall, List<string> Missing)> ResolveInstallAsync(
         OnlineModInfo root, IEnumerable<InstalledModInfo> installed)
     {
@@ -290,12 +321,18 @@ public class ModRepositoryService
         }
     }
 
-    public async Task LoadThumbnailAsync(OnlineModInfo mod)
+    internal Task LoadSubmissionImagesAsync(OnlineModInfo mod) =>
+        Task.WhenAll(LoadThumbnailAsync(mod), LoadIconAsync(mod));
+
+    public Task LoadThumbnailAsync(OnlineModInfo mod) =>
+        mod.ThumbnailLoadTask ??= FetchThumbnailAsync(mod, mod.ThumbnailUrl, mod.ThumbnailGeneration);
+
+    private async Task FetchThumbnailAsync(OnlineModInfo mod, string url, int generation)
     {
         if (mod.ThumbnailImage != null)
             return;
 
-        if (string.IsNullOrWhiteSpace(mod.ThumbnailUrl))
+        if (string.IsNullOrWhiteSpace(url))
         {
             mod.ThumbnailImage = LoadDefaultThumbnail();
             return;
@@ -303,17 +340,47 @@ public class ModRepositoryService
 
         try
         {
-            byte[] bytes = await _httpClient.GetByteArrayAsync(mod.ThumbnailUrl);
-
-            using var contentStream = new MemoryStream(bytes);
-            mod.ThumbnailImage = Bitmap.DecodeToWidth(contentStream, 192);
+            var image = await LoadBitmapAsync(url, 192);
+            if (mod.ThumbnailGeneration == generation)
+                mod.ThumbnailImage = image;
+            else
+                image.Dispose();
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Thumbnail loading failed for {mod.Name}: {ex.Message}");
 
-            mod.ThumbnailImage = LoadDefaultThumbnail();
+            if (mod.ThumbnailGeneration == generation)
+                mod.ThumbnailImage = LoadDefaultThumbnail();
         }
+    }
+
+    private Task LoadIconAsync(OnlineModInfo mod) =>
+        mod.IconUrl is { } url && !string.IsNullOrWhiteSpace(url)
+            ? mod.IconLoadTask ??= FetchIconAsync(mod, url, mod.IconGeneration)
+            : Task.CompletedTask;
+
+    private async Task FetchIconAsync(OnlineModInfo mod, string url, int generation)
+    {
+        try
+        {
+            var image = await LoadBitmapAsync(url, 96);
+            if (mod.IconGeneration == generation)
+                mod.IconImage = image;
+            else
+                image.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Icon loading failed for {mod.Name}: {ex.Message}");
+        }
+    }
+
+    private async Task<Bitmap> LoadBitmapAsync(string url, int width)
+    {
+        byte[] bytes = await _httpClient.GetByteArrayAsync(url);
+        using var stream = new MemoryStream(bytes);
+        return Bitmap.DecodeToWidth(stream, width);
     }
 
     public async Task LoadGalleryAsync(OnlineModInfo mod)

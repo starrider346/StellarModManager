@@ -33,6 +33,7 @@ internal sealed record Submission(Guid Uuid, string Type, SubmissionAuthor Autho
     string AiDisclosure, bool ActiveDevelopment, CatalogRelease? LatestRelease, CatalogRelease? MatchedRelease)
 {
     public long UniqueDownloads { get; init; }
+    public string? Icon { get; init; }
 
     internal OnlineModInfo ToOnline()
     {
@@ -44,6 +45,7 @@ internal sealed record Submission(Guid Uuid, string Type, SubmissionAuthor Autho
             Author = Author.DisplayName,
             Description = Description,
             ThumbnailUrl = Thumbnail ?? "",
+            IconUrl = Icon,
             ImageUrls = Gallery,
             Tags = Tags,
             Ai = AiDisclosure,

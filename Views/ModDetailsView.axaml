@@ -15,14 +15,18 @@
         <Border Classes="modDetailDialog" MaxWidth="1090" MaxHeight="760" Margin="28,20,28,26">
             <Grid RowDefinitions="Auto,*,Auto">
                 <Border Classes="detailsHeader">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                        <StackPanel VerticalAlignment="Center" Spacing="3">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <Border Classes="thumbnail" Width="44" Height="44" Margin="0,0,12,0"
+                                IsVisible="{Binding SelectedMod.IconImage, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}">
+                            <Image Source="{Binding SelectedMod.IconImage, FallbackValue={x:Null}}" Stretch="Uniform"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
                             <TextBlock Classes="pageTitle" TextTrimming="CharacterEllipsis"
                                        Text="{Binding DetailsMod.Name, FallbackValue={x:Null}}"/>
                             <TextBlock Classes="secondary" Text="{Binding DiscussionScore}"
                                        IsVisible="{Binding DiscussionScore, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                         </StackPanel>
-                        <Button x:Name="CloseDetailsButton" Grid.Column="1" Classes="ghost icon"
+                        <Button x:Name="CloseDetailsButton" Grid.Column="2" Margin="16,0,0,0" Classes="ghost icon"
                                 Command="{Binding CloseModDetailsCommand}"
                                 AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[CloseDetails]}"
                                 ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[CloseDetails]}">

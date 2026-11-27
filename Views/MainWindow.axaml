@@ -304,6 +304,17 @@
                                     </Grid>
                                 </Button>
 
+                                <Button Classes="nav" Command="{Binding OpenDirectInstallCommand}"
+                                        IsEnabled="{Binding !AreModActionsBlocked}"
+                                        ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DirectInstallTitle]}"
+                                        AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DirectInstallTitle]}">
+                                    <Grid ColumnDefinitions="44,*">
+                                        <TextBlock Text="+" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="navLabel" VerticalAlignment="Center"
+                                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DirectInstallTitle]}"/>
+                                    </Grid>
+                                </Button>
+
                                 <Button Classes="nav" Classes.selected="{Binding IsLibraryPage}"
                                         Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:AppPage.Library}"
                                         ToolTip.Tip="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[NavLibrary]}"
@@ -546,6 +557,41 @@
 
             <views:ModDetailsView x:Name="DetailsOverlay" IsVisible="{Binding IsModDetailsOpen}"
                                   KeyboardNavigation.TabNavigation="Cycle"/>
+            <Border Classes="overlay" x:Name="DirectInstallOverlay" IsVisible="{Binding IsDirectInstallOpen}"
+                    KeyboardNavigation.TabNavigation="Cycle">
+                <Border Classes="dialog" Width="640">
+                    <StackPanel Spacing="16">
+                        <TextBlock FontSize="20" FontWeight="SemiBold"
+                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DirectInstallTitle]}"/>
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DirectInstallCode]}"/>
+                            <TextBox x:Name="DirectInstallCodeBox" Text="{Binding DirectInstallCode, Mode=TwoWay}"
+                                     PlaceholderText="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DirectInstallCodeFormat]}"
+                                     AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[DirectInstallCode]}"/>
+                        </StackPanel>
+                        <Border Classes="card" Padding="12" IsVisible="{Binding !!DirectInstallRelease}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding DirectInstallRelease.Name, FallbackValue={x:Null}}"
+                                           FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding DirectInstallReleaseSummary}" Classes="secondary" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding DirectInstallProfileSummary}" Classes="secondary" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="{Binding DirectInstallStatus}" Classes="secondary" TextWrapping="Wrap"
+                                   IsVisible="{Binding DirectInstallStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <Grid ColumnDefinitions="*,*">
+                            <Button Grid.Column="0" Classes="accent" Margin="0,0,4,0"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    Content="{Binding DirectInstallActionText}" IsEnabled="{Binding !AreModActionsBlocked}"
+                                    Command="{Binding InstallDirectReleaseCommand}"/>
+                            <Button Grid.Column="1" Classes="subtle" Margin="4,0,0,0"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Cancel]}"
+                                    Command="{Binding CloseDirectInstallCommand}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Border>
             <views:ConfirmRemoveModView x:Name="RemoveOverlay" KeyboardNavigation.TabNavigation="Cycle" IsVisible="{Binding IsConfirmRemoveOpen}"/>
             <views:ConfirmDeployModView x:Name="DependenciesOverlay" KeyboardNavigation.TabNavigation="Cycle" IsVisible="{Binding IsConfirmDependenciesOpen}"/>
             <Border Classes="overlay" x:Name="ReplacementOverlay" KeyboardNavigation.TabNavigation="Cycle" IsVisible="{Binding IsConfirmReplacementOpen}">

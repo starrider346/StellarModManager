@@ -31,7 +31,8 @@
                         <Border Classes="pill"/>
                         <Grid ColumnDefinitions="60,*,80,80" Margin="12,0">
                             <Border Classes="thumbnail" Width="48" Height="48" HorizontalAlignment="Left">
-                                <Image Source="{Binding Online.ThumbnailImage, FallbackValue={x:Null}}" Stretch="UniformToFill"/>
+                                <Image Source="{Binding Online.ListImage, FallbackValue={x:Null}}"
+                                       Stretch="{Binding Online.ListImageStretch, FallbackValue=UniformToFill}"/>
                             </Border>
 
                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
@@ -107,21 +108,28 @@
                         </c:AspectRatio>
 
                         <StackPanel Grid.Row="1" Margin="12,10,12,12" Spacing="2">
-                            <Grid ColumnDefinitions="*,Auto,Auto">
-                                <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="{DynamicResource Theme.TextPrimaryBrush}"/>
-                                <Border Grid.Column="1" Margin="6,0,0,0" Classes="tag"
-                                        IsVisible="{Binding IsExternal}" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ExternalMod]}"/>
+                            <Grid ColumnDefinitions="Auto,*">
+                                <Border Classes="gridModIcon" IsVisible="{Binding Online.IconImage, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}">
+                                    <Image Source="{Binding Online.IconImage, FallbackValue={x:Null}}" Stretch="Uniform"/>
                                 </Border>
-                                <Border Grid.Column="2" Margin="6,0,0,0" Classes="depWarn"
-                                        IsVisible="{Binding HasDependencyWarning}"
-                                        ToolTip.Tip="{Binding DependencyWarning}">
-                                    <TextBlock Text="!"/>
-                                </Border>
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <Grid ColumnDefinitions="*,Auto,Auto">
+                                        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource Theme.TextPrimaryBrush}"/>
+                                        <Border Grid.Column="1" Margin="6,0,0,0" Classes="tag"
+                                                IsVisible="{Binding IsExternal}" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ExternalMod]}"/>
+                                        </Border>
+                                        <Border Grid.Column="2" Margin="6,0,0,0" Classes="depWarn"
+                                                IsVisible="{Binding HasDependencyWarning}"
+                                                ToolTip.Tip="{Binding DependencyWarning}">
+                                            <TextBlock Text="!"/>
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock Classes="secondary" Text="{Binding Author}" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
                             </Grid>
-                            <TextBlock Classes="secondary" Text="{Binding Author}" TextTrimming="CharacterEllipsis"/>
 
                             <ItemsControl ItemsSource="{Binding Online._Tags}" Margin="0,6,0,0"
                                           IsVisible="{Binding Online._Tags.Count}">

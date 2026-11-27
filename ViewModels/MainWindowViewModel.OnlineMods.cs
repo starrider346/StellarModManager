@@ -126,10 +126,7 @@ public partial class MainWindowViewModel
             var items = result.Items.Select(RegisterOnlineMod).ToList();
             VisibleOnlineMods.Clear();
             foreach (var item in items)
-            {
                 VisibleOnlineMods.Add(item);
-                _ = _repositoryService.LoadThumbnailAsync(item);
-            }
             _displayedPageSize = result.PageSize;
             BrowsePage = result.Page;
             BrowseTotalCount = result.TotalCount;
@@ -222,6 +219,7 @@ public partial class MainWindowViewModel
         if (existing == null)
         {
             OnlineMods.Add(mod);
+            _ = _repositoryService.LoadSubmissionImagesAsync(mod);
             return mod;
         }
 
@@ -241,7 +239,16 @@ public partial class MainWindowViewModel
         if (releaseChanged || thumbnailChanged)
         {
             existing.ThumbnailUrl = mod.ThumbnailUrl;
+            existing.ThumbnailGeneration++;
+            existing.ThumbnailLoadTask = null;
             existing.ThumbnailImage = null;
+        }
+        if (existing.IconUrl != mod.IconUrl)
+        {
+            existing.IconUrl = mod.IconUrl;
+            existing.IconGeneration++;
+            existing.IconLoadTask = null;
+            existing.IconImage = null;
         }
         if (releaseChanged || thumbnailChanged || !existing.ImageUrls.SequenceEqual(mod.ImageUrls))
         {
@@ -256,6 +263,7 @@ public partial class MainWindowViewModel
             existing.IsChangelogLoading = false;
             existing.ChangelogUnavailable = false;
         }
+        _ = _repositoryService.LoadSubmissionImagesAsync(existing);
         return existing;
     }
 

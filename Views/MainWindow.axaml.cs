@@ -24,7 +24,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        _overlays = [UpdateOverlay, ReplacementOverlay, DependenciesOverlay, RemoveOverlay, DetailsOverlay];
+        _overlays = [UpdateOverlay, ReplacementOverlay, DependenciesOverlay, RemoveOverlay, DirectInstallOverlay, DetailsOverlay];
         foreach (var overlay in _overlays)
         {
             overlay.PropertyChanged += (_, change) =>
@@ -97,6 +97,8 @@ public partial class MainWindow : Window
                 vm.CancelDependenciesCommand.Execute(null);
             else if (RemoveOverlay.IsVisible)
                 vm.CancelRemoveCommand.Execute(null);
+            else if (DirectInstallOverlay.IsVisible)
+                vm.CloseDirectInstallCommand.Execute(null);
             else if (DetailsOverlay.IsVisible)
                 vm.CloseModDetailsCommand.Execute(null);
             else
@@ -141,7 +143,10 @@ public partial class MainWindow : Window
         {
             _overlayFocusOrigins.TryAdd(next, restore ?? focused);
             if (restore == null || !next.IsVisualAncestorOf(restore) || !restore.Focus())
-                FocusFirstControl(next);
+            {
+                if (next != DirectInstallOverlay || !DirectInstallCodeBox.Focus())
+                    FocusFirstControl(next);
+            }
             return;
         }
 

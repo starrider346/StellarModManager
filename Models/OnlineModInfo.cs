@@ -75,9 +75,24 @@ public partial class OnlineModInfo : ModInfo
     public bool HasOptionalDependencies => OptionalDependencies.Length > 0;
 
     public string ThumbnailUrl { get; set; } = "";
+    internal string? IconUrl { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ListImage))]
     public partial Bitmap? ThumbnailImage { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ListImage), nameof(ListImageStretch))]
+    public partial Bitmap? IconImage { get; set; }
+
+    public Bitmap? ListImage => IconImage ?? ThumbnailImage;
+    public Avalonia.Media.Stretch ListImageStretch => IconImage is null
+        ? Avalonia.Media.Stretch.UniformToFill : Avalonia.Media.Stretch.Uniform;
+
+    internal Task? ThumbnailLoadTask { get; set; }
+    internal Task? IconLoadTask { get; set; }
+    internal int ThumbnailGeneration { get; set; }
+    internal int IconGeneration { get; set; }
 
     public List<string> ImageUrls { get; set; } = [];
     public ObservableCollection<Bitmap> GalleryImages { get; } = [];

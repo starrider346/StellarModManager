@@ -91,7 +91,7 @@ public partial class MainWindowViewModel
         if (value == null)
             return;
 
-        _ = _repositoryService.LoadThumbnailAsync(value);
+        _ = _repositoryService.LoadSubmissionImagesAsync(value);
         _ = _repositoryService.LoadGalleryAsync(value);
         _ = LoadDetailsReleasesAsync(value);
     }

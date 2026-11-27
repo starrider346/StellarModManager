@@ -216,7 +216,7 @@
                             <Border Classes="pill"/>
                             <Grid ColumnDefinitions="60,*,70,80,110,120" Margin="12,0">
                                 <Border Classes="thumbnail" Width="48" Height="48" HorizontalAlignment="Left">
-                                    <Image Source="{Binding ThumbnailImage}" Stretch="UniformToFill"/>
+                                    <Image Source="{Binding ListImage}" Stretch="{Binding ListImageStretch}"/>
                                 </Border>
 
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
@@ -293,29 +293,34 @@
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="models:OnlineModInfo">
                         <Grid RowDefinitions="Auto,Auto">
-                            <Border CornerRadius="9,9,0,0"
+                            <Border Classes="cardThumbnail" CornerRadius="9,9,0,0"
                                     Height="{Binding $parent[views:OnlineModsView].((vm:MainWindowViewModel)DataContext).CompactImageHeight}">
-                                <Border.Background>
-                                    <ImageBrush Source="{Binding ThumbnailImage}" Stretch="UniformToFill"/>
-                                </Border.Background>
+                                <Image Source="{Binding ThumbnailImage}" Stretch="UniformToFill"/>
                             </Border>
 
                             <Grid Grid.Row="1"
                                   Height="{Binding $parent[views:OnlineModsView].((vm:MainWindowViewModel)DataContext).CompactMetadataHeight}"
                                   RowDefinitions="*,Auto">
                                 <StackPanel Margin="12,9,12,4" Spacing="2">
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                        <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold"
-                                                   TextTrimming="CharacterEllipsis"/>
-                                        <Border Grid.Column="1" Classes="depWarn" IsVisible="{Binding HasCompatibilityWarning}"
-                                                ToolTip.Tip="{Binding CompatibilityTooltip}" AutomationProperties.Name="{Binding CompatibilityWarning}">
-                                            <TextBlock Text="!"/>
+                                    <Grid ColumnDefinitions="Auto,*">
+                                        <Border Classes="gridModIcon" IsVisible="{Binding IconImage, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                            <Image Source="{Binding IconImage}" Stretch="Uniform"/>
                                         </Border>
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                                <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <Border Grid.Column="1" Classes="depWarn" IsVisible="{Binding HasCompatibilityWarning}"
+                                                        ToolTip.Tip="{Binding CompatibilityTooltip}" AutomationProperties.Name="{Binding CompatibilityWarning}">
+                                                    <TextBlock Text="!"/>
+                                                </Border>
+                                            </Grid>
+                                            <TextBlock Classes="secondary" Text="{Binding Author}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Classes="cardDescription" Text="{Binding Description, Converter={x:Static c:MarkdownText.Preview}}" Margin="0,3,0,2"
+                                                       TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxLines="2"/>
+                                        </StackPanel>
                                     </Grid>
-                                    <TextBlock Classes="secondary" Text="{Binding Author}" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Classes="cardDescription" Text="{Binding Description, Converter={x:Static c:MarkdownText.Preview}}" Margin="0,3,0,2"
-                                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxLines="2"/>
-                                <ItemsControl ItemsSource="{Binding _Tags}" Height="20" ClipToBounds="True"
+                                    <ItemsControl ItemsSource="{Binding _Tags}" Height="20" ClipToBounds="True"
                                                   ToolTip.Tip="{Binding TagSummary}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
