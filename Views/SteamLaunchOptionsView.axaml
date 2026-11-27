@@ -1,0 +1,20 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:StellarModManager.ViewModels"
+             xmlns:loc="using:StellarModManager.Services"
+             x:Class="StellarModManager.Views.SteamLaunchOptionsView"
+             x:DataType="vm:MainWindowViewModel"
+             IsVisible="{Binding HasSteamLaunchOptions}">
+    <Border Classes="card">
+        <StackPanel Spacing="8">
+            <TextBlock Classes="sectionTitle"
+                       Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SteamLaunchOptionsLabel]}"/>
+            <TextBlock Classes="secondary" TextWrapping="Wrap"
+                       Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SteamLaunchOptionsInstructions]}"/>
+            <TextBox IsReadOnly="True" TextWrapping="Wrap" Text="{Binding SteamLaunchOptions, Mode=OneWay}"
+                     AutomationProperties.Name="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[SteamLaunchOptionsLabel]}"/>
+            <Button Classes="subtle" Command="{Binding CopySteamLaunchOptionsCommand}"
+                    Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[CopySteamLaunchOptions]}"/>
+        </StackPanel>
+    </Border>
+</UserControl>

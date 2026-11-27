@@ -1,137 +1,157 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.Versioning;
-using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
 namespace StellarModManager.Services;
 
+internal sealed record SteamGameDirectory(DirectoryInfo Directory, uint AppId);
 
-public static partial class SteamInfoService
+internal static partial class SteamInfoService
 {
-    private const string GamesDirectory = "steamapps/common/";
-    private const string LibraryVdfPath = "steamapps/libraryfolders.vdf";
+    private static readonly uint[] StellarDriveAppIds = [4183270, 4689730];
 
+    [GeneratedRegex("""^\s*"(?<key>[^"]+)"\s*"(?<value>(?:\\.|[^"\\])*)"\s*(?://.*)?$""")]
+    private static partial Regex KeyValuePattern();
 
-    [SupportedOSPlatform("windows")]
-    public static readonly (RegistryKey root, string subKey, string valueName)[] RegistryPaths =
-    OperatingSystem.IsWindows() ? [
-        (Registry.CurrentUser, @"SOFTWARE\Valve\Steam", "SteamPath"),
-        (Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath")
-    ] : [];
+    [GeneratedRegex("""\\(["\\])""")]
+    private static partial Regex EscapePattern();
 
-    [GeneratedRegex("""(?:"path")(?:\s*)(?:")(?<path>.*)(?:")""")]
-    private static partial Regex PathExtractionRegex();
-
-    [GeneratedRegex("""(?:"appid")(?:\s*)(?:")(?<appid>.*)(?:")""")]
-    private static partial Regex AppIdExtractionRegex();
-
-    [GeneratedRegex("""(?:"installdir")(?:\s*)(?:")(?<directory>.*)(?:")""")]
-    private static partial Regex DirectoryExtractionRegex();
-
-
-    public static IEnumerable<DirectoryInfo> GetSteamGames()
+    internal static IEnumerable<SteamGameDirectory> GetSteamGames(IEnumerable<string>? steamRoots = null)
     {
-        return GetSteamLibraries()
-            .Select(d => new DirectoryInfo(Path.Combine(d.FullName, GamesDirectory)))
-            .Where(d => d.Exists)
-            .SelectMany(d => d.GetDirectories())
-            .DistinctBy(d => d.FullName);
-    }
-
-    public static IEnumerable<DirectoryInfo> GetSteamLibraries()
-    {
-        const string macSteamPath = @"Y:\Library\Application Support\Steam";
-        if (Directory.Exists(macSteamPath))
-            return [new DirectoryInfo(macSteamPath)];
-
-        var potentialSteamPaths = GetSteamPathFromRegistry();
-
-        string? fileContent = null;
-        foreach (var potentialSteam in potentialSteamPaths)
+        foreach (var library in GetSteamLibraries(steamRoots ?? GetSteamRoots()))
         {
-            if (!potentialSteam.Exists) continue;
-
-            var filePath = Path.Combine(potentialSteam.FullName, LibraryVdfPath);
-
-            if (Path.Exists(filePath))
+            var steamApps = Path.Combine(library, "steamapps");
+            foreach (var appId in StellarDriveAppIds)
             {
-                fileContent = File.ReadAllText(filePath);
-                break;
+                if (ReadGameDirectory(steamApps, appId) is { } game && game.Directory.Exists)
+                    yield return game;
             }
         }
-        if (fileContent is null) return [];
-
-        var gamePaths = PathExtractionRegex()
-            .Matches(fileContent)
-            .Select(m => new DirectoryInfo(m.Groups["path"].Value.Replace(@"\\", @"\")))
-            .Where(d => d.Exists)
-            .DistinctBy(d => d.FullName);
-
-        return gamePaths;
     }
 
-
-    public static string? GetAppId(DirectoryInfo directory)
+    internal static uint? GetAppId(DirectoryInfo? directory)
     {
-        var appmanifests = GetSteamLibraries()
-            .SelectMany(d => 
-                Directory.EnumerateFiles
-                (
-                    path: Path.Combine(d.FullName, "steamapps"), 
-                    searchPattern: "appmanifest_*.acf"
-                )
-            );
+        if (directory?.Parent is not { } common || common.Parent is not { } steamApps ||
+            !ProfileFiles.PathComparer.Equals(common.Name, "common") ||
+            !ProfileFiles.PathComparer.Equals(steamApps.Name, "steamapps"))
+            return null;
 
-        foreach (var appmanifest in appmanifests)
+        foreach (var appId in StellarDriveAppIds)
         {
-            string fileContent;
-
-            try
-            {
-                fileContent = File.ReadAllText(appmanifest);
-            } 
-            catch(Exception e)
-            {
-                Console.WriteLine(e);
-                continue;
-            }
-
-            var directoryMatch = DirectoryExtractionRegex().Match(fileContent);
-            if (!directoryMatch.Groups.TryGetValue("directory", out var directoryGroup)) continue;
-            if (directoryGroup.Value != directory.Name) continue;
-
-            var appIdMatch = AppIdExtractionRegex().Match(fileContent);
-            if (!appIdMatch.Groups.TryGetValue("appid", out var appIdGroup)) 
-            { 
-                Console.WriteLine("Found a fitting appmanifest but failed to extract the appid");
-                continue;
-            }
-
-            return appIdGroup.Value;
+            if (ReadGameDirectory(steamApps.FullName, appId) is { } game &&
+                ProfileFiles.PathComparer.Equals(game.Directory.FullName, directory.FullName))
+                return game.AppId;
         }
 
         return null;
     }
 
-
-    private static List<DirectoryInfo> GetSteamPathFromRegistry()
+    private static SteamGameDirectory? ReadGameDirectory(string steamApps, uint appId)
     {
-        if (!OperatingSystem.IsWindows()) return [];
+        var manifest = ReadValues(Path.Combine(steamApps, $"appmanifest_{appId}.acf"));
+        if (!manifest.TryGetValue("appid", out var id) || !uint.TryParse(id, out var manifestId) || manifestId != appId ||
+            !manifest.TryGetValue("installdir", out var folder) || string.IsNullOrWhiteSpace(folder) ||
+            folder is "." or ".." || folder.IndexOfAny(['/', '\\', ':', '\0']) >= 0)
+            return null;
 
-        var result = new List<DirectoryInfo>();
-        foreach (var (root, subKey, valueName) in RegistryPaths)
+        return new(new DirectoryInfo(Path.Combine(steamApps, "common", folder)), appId);
+    }
+
+    private static IEnumerable<string> GetSteamLibraries(IEnumerable<string> steamRoots)
+    {
+        var seen = new HashSet<string>(ProfileFiles.PathComparer);
+        foreach (var root in steamRoots)
         {
-            using var key = root.OpenSubKey(subKey);
-            var value = key?.GetValue(valueName);
-            
-            if (value is string path && Path.Exists(path))
+            if (Directory.Exists(Path.Combine(root, "steamapps")) && seen.Add(CanonicalDirectory(root)))
+                yield return root;
+
+            var libraryFile = Path.Combine(root, "steamapps", "libraryfolders.vdf");
+            foreach (var path in ReadPairs(libraryFile)
+                         .Where(pair => string.Equals(pair.Key, "path", StringComparison.OrdinalIgnoreCase))
+                         .Select(pair => pair.Value))
             {
-                result.Add(new DirectoryInfo(path));
+                if (Path.IsPathFullyQualified(path) && Directory.Exists(Path.Combine(path, "steamapps")) &&
+                    seen.Add(CanonicalDirectory(path)))
+                    yield return path;
             }
         }
+    }
+
+    private static string CanonicalDirectory(string path)
+    {
+        var directory = new DirectoryInfo(path);
+        try
+        {
+            return Path.TrimEndingDirectorySeparator(
+                directory.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? directory.FullName);
+        }
+        catch (IOException) { return directory.FullName; }
+        catch (UnauthorizedAccessException) { return directory.FullName; }
+    }
+
+    private static IEnumerable<string> GetSteamRoots()
+    {
+        if (OperatingSystem.IsWindows())
+            return GetWindowsSteamRoots();
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return OperatingSystem.IsMacOS() && !string.IsNullOrEmpty(home)
+            ? [Path.Combine(home, "Library", "Application Support", "Steam")]
+            : [];
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static IEnumerable<string> GetWindowsSteamRoots()
+    {
+        (RegistryKey Root, string SubKey, string ValueName)[] keys =
+        [
+            (Registry.CurrentUser, @"SOFTWARE\Valve\Steam", "SteamPath"),
+            (Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath")
+        ];
+        foreach (var (root, subKey, valueName) in keys)
+        {
+            string? path;
+            try
+            {
+                using var key = root.OpenSubKey(subKey);
+                path = key?.GetValue(valueName) as string;
+            }
+            catch (IOException) { continue; }
+            catch (UnauthorizedAccessException) { continue; }
+            catch (System.Security.SecurityException) { continue; }
+
+            if (!string.IsNullOrEmpty(path))
+                yield return path;
+        }
+    }
+
+    private static Dictionary<string, string> ReadValues(string file)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in ReadPairs(file))
+            values.TryAdd(key, value);
+        return values;
+    }
+
+    private static List<KeyValuePair<string, string>> ReadPairs(string file)
+    {
+        var result = new List<KeyValuePair<string, string>>();
+        try
+        {
+            foreach (var line in File.ReadLines(file))
+            {
+                var pair = KeyValuePattern().Match(line);
+                if (pair.Success)
+                    result.Add(new(pair.Groups["key"].Value, EscapePattern().Replace(pair.Groups["value"].Value, "$1")));
+            }
+        }
+        catch (IOException) { result.Clear(); }
+        catch (UnauthorizedAccessException) { result.Clear(); }
+
         return result;
     }
 }

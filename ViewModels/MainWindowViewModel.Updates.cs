@@ -72,7 +72,8 @@ public partial class MainWindowViewModel
         {
             if (App.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: Window window })
             {
-                await window.Launcher.LaunchUriAsync(new Uri(AvailableUpdate.ReleaseUrl));
+                var uri = AppUpdatingService.FindPlatformDownload(AvailableUpdate) ?? new Uri(AvailableUpdate.ReleaseUrl);
+                await window.Launcher.LaunchUriAsync(uri);
             }
 
             IsUpdatePanelOpen = false;

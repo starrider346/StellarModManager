@@ -1,118 +1,100 @@
 using System;
-using System.IO;
 using System.Diagnostics;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace StellarModManager.Services;
 
-public static partial class GameLaunchService
+public static class GameLaunchService
 {
-    private static readonly TimeSpan LaunchThroughSteamTimeout = TimeSpan.FromSeconds(10);
-
-
-    public static async Task<Process?> Launch(FileInfo executable)
+    public static async Task<Process> Launch(FileInfo game)
     {
-        return await LaunchThroughSteam(executable) ?? LaunchDirectly(executable);
-    }
+        if (DetectExisting(game) is { } running)
+            return running;
 
-    public static Process? DetectExisting(FileInfo executable)
-    {
-        Process? result = null;
-
-        foreach (var process in Process.GetProcesses())
+        var isMac = OperatingSystem.IsMacOS();
+        if (SteamInfoService.GetAppId(game.Directory) is { } appId)
         {
-            try
+            if (await RequestSteamLaunch(appId))
             {
-                if (!process.HasExited && process.MainModule?.FileName == executable.FullName)
+                var timeout = TimeSpan.FromSeconds(isMac ? 30 : 10);
+                var timer = Stopwatch.StartNew();
+                do
                 {
-                    result = process;
-                    continue;
-                }
-            }
-            catch (Exception) {}
+                    if (DetectExisting(game) is { } process)
+                        return process;
+                    await Task.Delay(350);
+                } while (timer.Elapsed < timeout);
 
-            process.Dispose();
+                if (isMac)
+                    throw new InvalidOperationException(LocalizationService.Instance["StatusSteamLaunchTimeout"]);
+            }
+            else if (isMac)
+            {
+                throw new InvalidOperationException(LocalizationService.Instance["StatusSteamOpenFailed"]);
+            }
+        }
+        else if (isMac)
+        {
+            throw new InvalidOperationException(LocalizationService.Instance["StatusSteamGameRequired"]);
         }
 
+        return Process.Start(new ProcessStartInfo
+        {
+            FileName = game.FullName,
+            WorkingDirectory = game.DirectoryName,
+            UseShellExecute = true
+        }) ?? throw new InvalidOperationException("The game process could not be started.");
+    }
+
+    public static Process? DetectExisting(FileInfo game)
+    {
+        Process? result = null;
+        foreach (var process in Process.GetProcesses())
+        {
+            if (result is null && GameProcessIdentity.Matches(process, game))
+                result = process;
+            else
+                process.Dispose();
+        }
         return result;
     }
 
+    internal static string? GetSteamLaunchOptions(FileInfo game) =>
+        OperatingSystem.IsMacOS() && SteamInfoService.GetAppId(game.Directory) is not null
+            ? "WINEDLLOVERRIDES=\"version=n,b\" %command%"
+            : null;
 
-    private static async Task<Process?> LaunchThroughSteam(FileInfo executable)
+    private static async Task<bool> RequestSteamLaunch(uint appId)
     {
-        Console.WriteLine($"Attempting to launch through Steam");
-
-        if (!OperatingSystem.IsWindows()) return null;
-
-        if (executable.Directory is null)
+        var uri = FormattableString.Invariant($"steam://rungameid/{appId}");
+        var start = new ProcessStartInfo { UseShellExecute = OperatingSystem.IsWindows() };
+        if (OperatingSystem.IsWindows())
         {
-            Console.WriteLine($"Failed to launch through Steam (directory is null)");
-            return null;
+            start.FileName = uri;
+        }
+        else
+        {
+            start.FileName = "/usr/bin/open";
+            start.ArgumentList.Add("-b");
+            start.ArgumentList.Add("com.valvesoftware.steam");
+            start.ArgumentList.Add(uri);
         }
 
-        Process? process = null;
         try
         {
-            var appId = SteamInfoService.GetAppId(executable.Directory);
-            if (appId is null)
-            {
-                Console.WriteLine($"Failed to launch through Steam (couldn't determine appid)");
-                return null;
-            }
+            using var opener = Process.Start(start);
+            if (OperatingSystem.IsWindows())
+                return true;
 
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = $"steam://rungameid/{appId}",
-                UseShellExecute = true
-            });
-
-
-            var processName = Path.GetFileNameWithoutExtension(executable.Name);
-            var stopwatch = Stopwatch.StartNew();
-            while (stopwatch.Elapsed < LaunchThroughSteamTimeout)
-            {
-                process = DetectExisting(executable);
-
-                if (process is not null)
-                {
-                    Console.WriteLine($"Successfully launched through Steam");
-                    break;
-                }
-
-                await Task.Delay(TimeSpan.FromSeconds(0.1));
-            }
-            
-            if (process is null) Console.WriteLine($"Failed to launch through Steam (timeout, couldn't find started process)");
+            if (opener is null)
+                return false;
+            await opener.WaitForExitAsync();
+            return opener.ExitCode == 0;
         }
-        catch (Exception e)
+        catch (System.ComponentModel.Win32Exception)
         {
-            Console.WriteLine($"Failed to launch through Steam: {e.Message}");
+            return false;
         }
-        
-        return process;
-    }
-
-    private static Process? LaunchDirectly(FileInfo executable) // ig this would work on Linux?
-    {
-        Console.WriteLine($"Attempting to launch directly");
-
-        Process? process = null;
-        try
-        {
-            process = Process.Start(new ProcessStartInfo
-            {
-                FileName = executable.Name,
-                WorkingDirectory = executable.DirectoryName,
-                UseShellExecute = true
-            });
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine($"Failed to launch directly: {e.Message}");
-        }
-
-        if (process is not null) Console.WriteLine($"Successfully launched directly (direct launching will cause issues with Steamworks)");
-    
-        return process;
     }
 }

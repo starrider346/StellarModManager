@@ -35,6 +35,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ;SetupArchitecture=x64
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
+ChangesAssociations=yes
 LicenseFile=App\License.txt
 InfoAfterFile=App\PostInfo.txt
 ; Remove the following line to run in administrative install mode (install for all users).
@@ -58,6 +59,12 @@ Source: "App\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createall
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+[Registry]
+Root: HKA; Subkey: "Software\Classes\stellarmodmanager"; ValueType: string; ValueData: "URL:Stellar Mod Manager Release"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\stellarmodmanager"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\stellarmodmanager\DefaultIcon"; ValueType: string; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKA; Subkey: "Software\Classes\stellarmodmanager\shell\open\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

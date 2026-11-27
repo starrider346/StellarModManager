@@ -6,7 +6,7 @@ namespace StellarModManager.Services;
 internal static class AppPaths
 {
     internal static string UserDataDirectory { get; } = 
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StellarModManager");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify), "StellarModManager");
 
     internal static string GameProfilePath { get; }
         = Path.Combine(UserDataDirectory, "settings.json");

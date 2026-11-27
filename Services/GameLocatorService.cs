@@ -1,67 +1,71 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using AvaloniaBitmap = Avalonia.Media.Imaging.Bitmap;
 
 namespace StellarModManager.Services;
 
-public enum GameInstallSource { Steam }
-public record GameInstallationInfo(DirectoryInfo Directory, AvaloniaBitmap? Icon, GameInstallSource Source);
+public sealed record GameInstallationInfo(DirectoryInfo Directory, AvaloniaBitmap? Icon)
+{
+    public string Source => OperatingSystem.IsMacOS() ? "Steam · NotProton" : "Steam";
+}
 
 public static class GameLocatorService
 {
     public const string ExecutableName = "StellarDrive.exe";
 
+    internal static bool IsSupportedPlatform => OperatingSystem.IsWindows() ||
+        (OperatingSystem.IsMacOS() && RuntimeInformation.ProcessArchitecture == Architecture.Arm64);
 
-    public static IReadOnlyList<GameInstallationInfo> Locate()
+    public static IReadOnlyList<GameInstallationInfo> Locate() => IsSupportedPlatform
+        ? SteamInfoService.GetSteamGames()
+            .Select(game => FindExecutable(game.Directory.FullName))
+            .OfType<FileInfo>()
+            .Select(executable => new GameInstallationInfo(executable.Directory!,
+                OperatingSystem.IsWindowsVersionAtLeast(6, 1) ? ReadWindowsIcon(executable.FullName) : null))
+            .ToList()
+        : [];
+
+    internal static FileInfo? FindExecutable(string path)
+    {
+        if (!IsSupportedPlatform || !Path.IsPathFullyQualified(path))
+            return null;
+
+        var executablePath = Path.Combine(path, ExecutableName);
+        return File.Exists(executablePath) ? new FileInfo(executablePath) : null;
+    }
+
+    [SupportedOSPlatform("windows6.1")]
+    private static AvaloniaBitmap? ReadWindowsIcon(string executablePath)
     {
         try
         {
-            var installs = SteamInfoService.GetSteamGames()
-                .Where(d => d.Name.Contains("StellarDrive"))
-                .Select(d => CollectInstallInfo(d, GameInstallSource.Steam))
-                .OfType<GameInstallationInfo>();
-
-            return [.. installs];
-        }
-        catch
-        {
-            return [];
-        }
-    }
-
-
-    private static GameInstallationInfo? CollectInstallInfo(DirectoryInfo directory, GameInstallSource source)
-    {
-        var executablePath = Path.Combine(directory.FullName, ExecutableName);
-        if (!Path.Exists(executablePath)) return null;
-
-        AvaloniaBitmap? icon = null;
-        if (OperatingSystem.IsWindowsVersionAtLeast(major: 6, minor: 1))
-        {
             using var fileIcon = Icon.ExtractAssociatedIcon(executablePath);
-            using var systemBitmap = fileIcon?.ToBitmap();
+            using var bitmap = fileIcon?.ToBitmap();
+            if (bitmap is null)
+                return null;
 
-            // https://github.com/AvaloniaUI/Avalonia/discussions/5908
-            var data = systemBitmap?.LockBits(new Rectangle(0, 0, systemBitmap.Width, systemBitmap.Height), ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
-            if (data is not null)
+            var data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
             {
-                icon = new AvaloniaBitmap
-                (
-                    format: Avalonia.Platform.PixelFormat.Bgra8888,
-                    alphaFormat: Avalonia.Platform.AlphaFormat.Premul,
-                    data: data.Scan0,
-                    size: new Avalonia.PixelSize(data.Width, data.Height),
-                    dpi: new Avalonia.Vector(96, 96),
-                    stride: data.Stride
-                );
-                systemBitmap?.UnlockBits(data);
+                return new AvaloniaBitmap(
+                    Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Premul,
+                    data.Scan0, new Avalonia.PixelSize(data.Width, data.Height), new Avalonia.Vector(96, 96), data.Stride);
+            }
+            finally
+            {
+                bitmap.UnlockBits(data);
             }
         }
-
-        return new(directory, icon, source);
+        catch (ArgumentException) { return null; }
+        catch (System.Runtime.InteropServices.ExternalException) { return null; }
+        catch (InvalidOperationException) { return null; }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
     }
 }

@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StellarModManager.Models;
@@ -13,18 +14,49 @@ namespace StellarModManager.ViewModels;
 public partial class MainWindowViewModel
 {
     private CancellationTokenSource? _directInstallLookup;
+    private ReleaseInstallLink? _pendingReleaseLink;
 
     [ObservableProperty] public partial bool IsDirectInstallOpen { get; private set; }
     [ObservableProperty] public partial string? DirectInstallCode { get; set; }
     [ObservableProperty] public partial string? DirectInstallStatus { get; private set; }
     [ObservableProperty] public partial string? DirectInstallReleaseSummary { get; private set; }
     [ObservableProperty] public partial string? DirectInstallProfileSummary { get; private set; }
+    [ObservableProperty] public partial string? DirectInstallSetupStatus { get; private set; }
 
     [ObservableProperty, NotifyCanExecuteChangedFor(nameof(InstallDirectReleaseCommand))]
     [NotifyPropertyChangedFor(nameof(DirectInstallActionText))]
     public partial OnlineModInfo? DirectInstallRelease { get; private set; }
 
     public string DirectInstallActionText => DirectInstallRelease?.InstallButtonText ?? LocalizationService.Instance["Install"];
+
+    internal void ReceiveInstallLink(string url)
+    {
+        if (!ReleaseInstallLink.TryParse(url, out var link))
+        {
+            if (SetupRequired)
+                DirectInstallSetupStatus = LocalizationService.Instance["DirectInstallInvalidLink"];
+            else
+                ReportError("DirectInstallInvalidLink");
+            return;
+        }
+
+        _pendingReleaseLink = link;
+        if (SetupRequired)
+            DirectInstallSetupStatus = LocalizationService.Instance["DirectInstallLinkPendingSetup"];
+        ShowPendingInstallLink();
+    }
+
+    private void ShowPendingInstallLink()
+    {
+        if (SetupRequired || AreModActionsBlocked || IsUpdatePanelOpen || IsDirectInstallOpen ||
+            _profileStore == null || ActiveProfile == null || _pendingReleaseLink is not { } link)
+            return;
+
+        _pendingReleaseLink = null;
+        DirectInstallSetupStatus = null;
+        OpenDirectInstall();
+        DirectInstallCode = link.Code;
+    }
 
     [RelayCommand]
     private void OpenDirectInstall()
@@ -62,10 +94,8 @@ public partial class MainWindowViewModel
         if (!IsDirectInstallOpen || string.IsNullOrWhiteSpace(value))
             return;
 
-        var parts = value.Split(':', 2);
         var loc = LocalizationService.Instance;
-        if (parts.Length != 2 || !Guid.TryParseExact(parts[0].Trim(), "D", out var submissionUuid) ||
-            !Guid.TryParseExact(parts[1].Trim(), "D", out var releaseUuid) || submissionUuid == Guid.Empty || releaseUuid == Guid.Empty)
+        if (!ReleaseInstallLink.TryParseCode(value, out var link))
         {
             DirectInstallStatus = loc["DirectInstallInvalidCode"];
             return;
@@ -74,7 +104,7 @@ public partial class MainWindowViewModel
         DirectInstallStatus = loc["DirectInstallLookingUp"];
         var lookup = new CancellationTokenSource();
         _directInstallLookup = lookup;
-        _ = LoadDirectInstallReleaseAsync(submissionUuid, releaseUuid, lookup);
+        _ = LoadDirectInstallReleaseAsync(link.SubmissionUuid, link.ReleaseUuid, lookup);
     }
 
     private async Task LoadDirectInstallReleaseAsync(Guid submissionUuid, Guid releaseUuid, CancellationTokenSource lookup)

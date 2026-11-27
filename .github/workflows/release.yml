@@ -10,39 +10,147 @@ on:
         description: 'Release name (e.g. Convenience Update)'
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version }}
+  STELLARMODS_API_ORIGIN: ${{ vars.STELLARMODS_API_ORIGIN || 'https://localhost:3000' }}
 
 jobs:
-  release:
+  windows:
     runs-on: windows-latest
-    env:
-      VERSION: ${{ inputs.version }}
-      STELLARMODS_API_ORIGIN: ${{ vars.STELLARMODS_API_ORIGIN || 'https://localhost:3000' }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
 
-      - name: Publish app
+      - name: Test
+        run: dotnet test StellarModManager.Tests/StellarModManager.Tests.csproj -c Release
+
+      - name: Publish Windows app
         shell: pwsh
         run: |
+          if ($env:VERSION -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a version such as 2.5.1.' }
           dotnet publish StellarModManager.csproj -c Release -r win-x64 `
             --self-contained true -p:PublishSingleFile=true `
             -p:DebugType=None -p:DebugSymbols=false `
             "-p:Version=$env:VERSION" "-p:AppUpdateRepository=$env:GITHUB_REPOSITORY" `
             "-p:StellarModsApiOrigin=$env:STELLARMODS_API_ORIGIN" -o App
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
           Copy-Item License.txt, PostInfo.txt App\
           Copy-Item Assets\icon.ico App\icon.ico
-
-      - name: Create portable zip
-        shell: pwsh
-        run: Compress-Archive -Path App\* -DestinationPath "StellarModManager_${env:VERSION}_Portable.zip"
+          New-Item -ItemType Directory -Force -Path Output | Out-Null
+          Compress-Archive -Path App\* -DestinationPath "Output\StellarModManager_${env:VERSION}_Portable.zip"
 
       - name: Build installer
         shell: pwsh
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:VERSION" StellarModManager.iss'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          if-no-files-found: error
+          path: Output/StellarModManager_*
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: dotnet test StellarModManager.Tests/StellarModManager.Tests.csproj -c Release
+
+      - name: Publish Apple Silicon app
+        shell: bash
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Expected a version such as 2.5.1.' >&2
+            exit 1
+          fi
+          dotnet publish StellarModManager.csproj -c Release -r osx-arm64 \
+            --self-contained true -p:DebugType=None -p:DebugSymbols=false \
+            "-p:Version=$VERSION" "-p:AppUpdateRepository=$GITHUB_REPOSITORY" \
+            "-p:StellarModsApiOrigin=$STELLARMODS_API_ORIGIN" -o App/StellarModManager
+
+      - name: Package macOS app
+        shell: bash
+        run: |
+          publish_dir=App/StellarModManager
+          stage=$(mktemp -d)
+          trap 'rm -rf "$stage"' EXIT
+          app="$stage/Stellar Mod Manager.app"
+
+          test -x "$publish_dir/StellarModManager"
+          test -f "$publish_dir/Data/Localization/en.json"
+          test -f "$publish_dir/Data/Themes/slate.json"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          /usr/bin/ditto "$publish_dir" "$app/Contents/MacOS"
+          cp License.txt "$app/Contents/Resources/"
+          /usr/bin/sips -s format icns Assets/icon.ico --out "$app/Contents/Resources/StellarModManager.icns"
+
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleIdentifier</key>
+              <string>dev.jollyname.StellarModManager</string>
+              <key>CFBundleName</key>
+              <string>Stellar Mod Manager</string>
+              <key>CFBundleExecutable</key>
+              <string>StellarModManager</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleIconFile</key>
+              <string>StellarModManager.icns</string>
+              <key>CFBundleURLTypes</key>
+              <array>
+                  <dict>
+                      <key>CFBundleTypeRole</key>
+                      <string>Viewer</string>
+                      <key>CFBundleURLName</key>
+                      <string>dev.jollyname.StellarModManager.release</string>
+                      <key>CFBundleURLSchemes</key>
+                      <array>
+                          <string>stellarmodmanager</string>
+                      </array>
+                  </dict>
+              </array>
+              <key>CFBundleVersion</key>
+              <string>$VERSION</string>
+              <key>CFBundleShortVersionString</key>
+              <string>$VERSION</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          /usr/bin/plutil -lint "$app/Contents/Info.plist"
+          mkdir -p Output
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "Output/StellarModManager_${VERSION}_osx-arm64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osx-arm64
+          if-no-files-found: error
+          path: Output/StellarModManager_*_osx-arm64.zip
+
+  release:
+    needs: [windows, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -50,6 +158,8 @@ jobs:
           tag_name: v${{ inputs.version }}
           name: ${{ inputs.title != '' && format('StellarModManager v{0} | {1}', inputs.version, inputs.title) || format('StellarModManager v{0}', inputs.version) }}
           files: |
-            StellarModManager_*_Portable.zip
-            Output/StellarModManager_*_Setup.exe
+            release/StellarModManager_${{ inputs.version }}_Portable.zip
+            release/StellarModManager_${{ inputs.version }}_Setup.exe
+            release/StellarModManager_${{ inputs.version }}_osx-arm64.zip
+          fail_on_unmatched_files: true
           generate_release_notes: true

@@ -1,5 +1,6 @@
 ﻿using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -7,6 +8,7 @@ using StellarModManager.Models;
 using StellarModManager.Services;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace StellarModManager.ViewModels;
@@ -28,6 +30,12 @@ public partial class MainWindowViewModel
     [ObservableProperty]
     public partial string InstallProgressText { get; set; } = "";
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSteamLaunchOptions))]
+    public partial string? SteamLaunchOptions { get; private set; }
+
+    public bool HasSteamLaunchOptions => SteamLaunchOptions is not null;
+
     private readonly MelonLoaderInstaller _melonLoaderInstaller = new();
 
     partial void OnGamePathChanged(string value)
@@ -45,19 +53,47 @@ public partial class MainWindowViewModel
 
     partial void OnIsInstallingMelonLoaderChanged(bool value) => InstallMelonLoaderCommand.NotifyCanExecuteChanged();
 
-    private bool CheckMelonLoader(string path)
+    private bool ResolveGameFolder(string path)
     {
-        var detector = new MelonLoaderDetector();
-        var result = detector.CheckInstallation(path);
+        GameProcess = null;
+        GamePath = path;
+        var executable = GameLocatorService.FindExecutable(path);
+        SteamLaunchOptions = executable is null ? null : GameLaunchService.GetSteamLaunchOptions(executable);
+        RefreshMelonLoaderStatus(executable);
+        InstallMelonLoaderCommand.NotifyCanExecuteChanged();
+        return IsMelonLoaderValid;
+    }
 
-        MelonLoaderStatusText = result switch
+    private void RefreshMelonLoaderStatus(FileInfo? executable)
+    {
+        if (executable is null)
         {
-            MelonLoaderStatus.Installed => "MelonLoader is installed",
-            MelonLoaderStatus.NotInstalled => "MelonLoader is not installed",
-            _ => "Could not read that folder"
-        };
+            IsMelonLoaderValid = false;
+            MelonLoaderStatusText = LocalizationService.Instance[
+                GameLocatorService.IsSupportedPlatform ? "StatusGameNotFound" : "StatusUnsupportedGameBuild"];
+            return;
+        }
 
-        return result == MelonLoaderStatus.Installed;
+        IsMelonLoaderValid = new MelonLoaderDetector().CheckInstallation(GamePath) == MelonLoaderStatus.Installed;
+        MelonLoaderStatusText = LocalizationService.Instance[
+            IsMelonLoaderValid ? "MelonLoaderInstalledStatus" : "MelonLoaderMissingStatus"];
+    }
+
+    [RelayCommand]
+    private async Task CopySteamLaunchOptions()
+    {
+        if (SteamLaunchOptions is not { } options ||
+            App.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime { MainWindow.Clipboard: { } clipboard })
+            return;
+        try
+        {
+            await clipboard.SetTextAsync(options);
+            ReportSuccess("StatusSteamLaunchOptionsCopied");
+        }
+        catch (Exception ex)
+        {
+            ReportError("StatusSteamLaunchOptionsCopyFailed", ex.Message);
+        }
     }
 
     [RelayCommand]
@@ -82,12 +118,12 @@ public partial class MainWindowViewModel
             var folders = await window.StorageProvider.OpenFolderPickerAsync(
                 new FolderPickerOpenOptions
                 {
-                    Title = "Select Unity Game Folder",
+                    Title = LocalizationService.Instance["SelectStellarDriveFolder"],
                     AllowMultiple = false
                 });
 
-            if (folders.Count > 0)
-                SetGameFolder(folders[0].Path.LocalPath);
+            if (folders.Count > 0 && folders[0].TryGetLocalPath() is { } path)
+                SetGameFolder(path);
         }
         finally
         {
@@ -111,9 +147,7 @@ public partial class MainWindowViewModel
 
     private void SetGameFolder(string path)
     {
-        GamePath = path;
-        IsMelonLoaderValid = CheckMelonLoader(path);
-        if (IsMelonLoaderValid)
+        if (ResolveGameFolder(path))
         {
             ApplyMelonLoaderConsoleSetting();
             OpenGameProfiles(path, _settingsService.LoadGameProfile()?.GamePath);
@@ -127,23 +161,31 @@ public partial class MainWindowViewModel
         }
     }
 
-    private bool CanInstallMelonLoader() => GamePath != "No game selected" && !IsMelonLoaderValid && !IsInstallingMelonLoader;
+    private bool CanInstallMelonLoader() =>
+        !IsMelonLoaderValid && !IsInstallingMelonLoader && GameLocatorService.FindExecutable(GamePath) is not null;
 
     [RelayCommand(CanExecute = nameof(CanInstallMelonLoader))]
     private async Task InstallMelonLoader()
     {
-        if (!TryBeginModOperation(requireProfile: false))
+        if (GameLocatorService.FindExecutable(GamePath) is not { } game || !TryBeginModOperation(requireProfile: false))
             return;
         IsInstallingMelonLoader = true;
         InstallProgressText = "Starting...";
 
         try
         {
+            using (var running = GameLaunchService.DetectExisting(game))
+            {
+                if (running is not null)
+                {
+                    MelonLoaderStatusText = LocalizationService.Instance["StatusLoaderGameRunning"];
+                    return;
+                }
+            }
+
             var progress = new Progress<string>(text => InstallProgressText = text);
-
             await _melonLoaderInstaller.InstallAsync(GamePath, progress);
-
-            IsMelonLoaderValid = CheckMelonLoader(GamePath);
+            RefreshMelonLoaderStatus(GameLocatorService.FindExecutable(GamePath));
 
             if (IsMelonLoaderValid)
             {
@@ -154,7 +196,7 @@ public partial class MainWindowViewModel
         }
         catch (Exception ex)
         {
-            MelonLoaderStatusText = $"Auto-install failed: {ex.Message}"; // Hopesfully this never happens... ijdsfjipfdsipjhfdfdf
+            MelonLoaderStatusText = LocalizationService.Instance.Format("StatusLoaderInstallFailed", ex.Message);
         }
         finally
         {

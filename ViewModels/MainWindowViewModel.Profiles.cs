@@ -211,8 +211,9 @@ public partial class MainWindowViewModel
 
             void CheckGameStopped()
             {
-                var executable = new FileInfo(Path.Combine(gamePath, GameLocatorService.ExecutableName));
-                using var running = executable.Exists ? GameLaunchService.DetectExisting(executable) : null;
+                var executable = GameLocatorService.FindExecutable(gamePath)
+                    ?? throw new InvalidOperationException(LocalizationService.Instance["StatusGameNotFound"]);
+                using var running = GameLaunchService.DetectExisting(executable);
                 if (running != null)
                     throw new InvalidOperationException(LocalizationService.Instance["StatusProfileGameRunning"]);
             }

@@ -42,6 +42,15 @@ public partial class MainWindowViewModel : ViewModelBase
             new("optimization", "BrowseCategoryOptimization", ReloadBrowseResults)
         ];
         LibraryMods.CollectionChanged += (_, _) => OnPropertyChanged(nameof(LibraryShortcutText));
+        PropertyChanged += (_, change) =>
+        {
+            if (_pendingReleaseLink.HasValue && change.PropertyName is
+                nameof(SetupRequired) or nameof(AreModActionsBlocked) or nameof(IsUpdatePanelOpen) or
+                nameof(IsDirectInstallOpen) or nameof(ActiveProfile))
+            {
+                Dispatcher.UIThread.Post(ShowPendingInstallLink);
+            }
+        };
     }
 
     public MainWindowViewModel() : this(new ModRepositoryService())
@@ -91,26 +100,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var profile = _settingsService.LoadGameProfile();
 
-        if (profile != null)
+        if (profile is not null && ResolveGameFolder(profile.GamePath))
         {
-            GamePath = profile.GamePath;
-
-            var detector = new MelonLoaderDetector();
-            var result = detector.CheckInstallation(profile.GamePath);
-
-            if (result == MelonLoaderStatus.Installed)
-            {
-                IsMelonLoaderValid = true;
-                SetupRequired = false;
-
-                ApplyMelonLoaderConsoleSetting();
-                OpenGameProfiles(profile.GamePath, profile.GamePath);
-                _ = RefreshMods();
-            }
-            else
-            {
-                MelonLoaderStatusText = "Previously saved game path is no longer valid";
-            }
+            SetupRequired = false;
+            ApplyMelonLoaderConsoleSetting();
+            OpenGameProfiles(profile.GamePath, profile.GamePath);
+            _ = RefreshMods();
         }
 
         ApplyAutoCheckTimerState();

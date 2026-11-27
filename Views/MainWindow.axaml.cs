@@ -23,6 +23,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        if (OperatingSystem.IsMacOS())
+        {
+            ExtendClientAreaToDecorationsHint = false;
+            WindowDecorations = WindowDecorations.Full;
+            WindowCaptionButtons.IsVisible = false;
+        }
 
         _overlays = [UpdateOverlay, ReplacementOverlay, DependenciesOverlay, RemoveOverlay, DirectInstallOverlay, DetailsOverlay];
         foreach (var overlay in _overlays)

@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:StellarModManager.Views"
              xmlns:vm="using:StellarModManager.ViewModels"
              xmlns:loc="using:StellarModManager.Services"
              x:Class="StellarModManager.Views.SetupPanelView"
@@ -19,6 +20,10 @@
                                Foreground="{DynamicResource Theme.TextSecondaryBrush}"
                                Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[WelcomeDescription]}"/>
                 </StackPanel>
+
+                <TextBlock Classes="secondary" TextWrapping="Wrap"
+                           Text="{Binding DirectInstallSetupStatus}"
+                           IsVisible="{Binding DirectInstallSetupStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
 
                 <StackPanel Spacing="8">
                     <TextBlock Classes="sectionTitle"
@@ -63,6 +68,8 @@
                         <TextBlock Classes="secondary" Text="{Binding GamePath}" TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>
+
+                <views:SteamLaunchOptionsView/>
 
                 <StackPanel Spacing="8" IsVisible="{Binding !IsMelonLoaderValid}">
                     <Button Classes="subtle" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"

@@ -1,10 +1,9 @@
-﻿using Avalonia.Threading;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StellarModManager.Services;
 using System;
 using System.Diagnostics;
-using System.IO;
 using System.Threading.Tasks;
 
 namespace StellarModManager.ViewModels;
@@ -16,49 +15,57 @@ public partial class MainWindowViewModel
         get;
         set
         {
-            if (field == value) return;
+            if (field == value)
+                return;
 
-            if (field is not null)
+            if (field is { } previous)
             {
-                field.EnableRaisingEvents = false;
-                field.Exited -= OnExitGameProcess;
-
-                if (!field.HasExited) field.Kill(); // kill the existing process since we're replacing it for some reason
-
-                field.Close();
-                field.Dispose(); // seemingly not called by Close
-            }
-
-            if (value is not null)
-            {
-                value.EnableRaisingEvents = true;
-                value.Exited += OnExitGameProcess;
+                previous.Exited -= OnExitGameProcess;
+                previous.Dispose();
             }
 
             field = value;
-            IsGameRunning = field is not null;
+            IsGameRunning = value is not null;
+
+            if (value is not null)
+            {
+                value.Exited += OnExitGameProcess;
+                try
+                {
+                    value.EnableRaisingEvents = true;
+                }
+                catch (InvalidOperationException)
+                {
+                    GameProcess = null;
+                }
+            }
         }
     }
 
     [ObservableProperty]
     public partial bool IsGameRunning { get; private set; }
 
-
-    private void OnExitGameProcess(object? _, EventArgs args)
+    private void OnExitGameProcess(object? sender, EventArgs args)
     {
-        Dispatcher.UIThread.Post(() => GameProcess = null);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (ReferenceEquals(sender, GameProcess))
+                GameProcess = null;
+        });
     }
-
 
     [RelayCommand]
     private async Task ToggleGame()
     {
         if (!TryBeginModOperation(requireProfile: !IsGameRunning))
             return;
+
         try
         {
-            if (IsGameRunning) StopGame();
-            else await LaunchGame();
+            if (IsGameRunning)
+                StopGame();
+            else
+                await LaunchGame();
         }
         finally
         {
@@ -66,12 +73,9 @@ public partial class MainWindowViewModel
         }
     }
 
-
     private async Task LaunchGame()
     {
-        var game = FindGameExecutable();
-
-        if (game is null)
+        if (GameLocatorService.FindExecutable(GamePath) is not { } game)
         {
             ReportError("StatusGameNotFound");
             return;
@@ -90,9 +94,24 @@ public partial class MainWindowViewModel
 
     private void StopGame()
     {
+        if (GameProcess is not { } process)
+            return;
+
         try
         {
-            GameProcess?.Kill(entireProcessTree: true);
+            if (process.HasExited)
+            {
+                GameProcess = null;
+                return;
+            }
+
+            if (GameLocatorService.FindExecutable(GamePath) is not { } game || !GameProcessIdentity.Matches(process, game))
+            {
+                ReportError("StatusGameProcessUnverified");
+                return;
+            }
+
+            process.Kill(entireProcessTree: OperatingSystem.IsWindows());
         }
         catch (Exception ex)
         {
@@ -100,18 +119,9 @@ public partial class MainWindowViewModel
         }
     }
 
-
-    private FileInfo? FindGameExecutable()
-    {
-        var path = Path.Combine(GamePath, GameLocatorService.ExecutableName);
-        return Path.Exists(path) ? new FileInfo(path) : null;
-    }
-
     private void SearchGameProcessIfNull()
     {
-        if (GameProcess is null && FindGameExecutable() is FileInfo game)
-        {
+        if (GameProcess is null && GameLocatorService.FindExecutable(GamePath) is { } game)
             GameProcess = GameLaunchService.DetectExisting(game);
-        }
     }
 }

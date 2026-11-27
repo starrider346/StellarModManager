@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using StellarModManager.Models;
 
@@ -31,7 +32,21 @@ public class AppUpdatingService
 
         if (latest <= current) return null;
 
-        return new UpdateInfo(latest, release.assets, release.body, release.html_url);
+        var update = new UpdateInfo(latest, release.assets, release.body, release.html_url);
+        return OperatingSystem.IsMacOS() && FindPlatformDownload(update) is null ? null : update;
+    }
+
+    internal static Uri? FindPlatformDownload(UpdateInfo update)
+    {
+        const string suffix = "_osx-arm64.zip";
+        if (!OperatingSystem.IsMacOS() || RuntimeInformation.ProcessArchitecture != Architecture.Arm64)
+            return null;
+
+        var asset = update.Assets.FirstOrDefault(asset =>
+            asset.name.StartsWith("StellarModManager_", StringComparison.Ordinal) &&
+            asset.name.EndsWith(suffix, StringComparison.Ordinal));
+        return Uri.TryCreate(asset?.browser_download_url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps
+            ? uri : null;
     }
 
     public async Task DownloadAndInstallUpdateAsync(UpdateInfo update, IProgress<double> progress)
@@ -90,6 +105,6 @@ public class AppUpdatingService
     //check if the app is installed or portable
     public static bool IsInstalled()
     {
-        return File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
+        return OperatingSystem.IsWindows() && File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
     }
 }

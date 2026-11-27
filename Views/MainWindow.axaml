@@ -101,7 +101,7 @@
                 </Button>
             </StackPanel>
 
-            <StackPanel Grid.Column="4" Orientation="Horizontal">
+            <StackPanel x:Name="WindowCaptionButtons" Grid.Column="4" Orientation="Horizontal">
                 <Button Classes="caption" Click="OnMinimizeClick"
                         WindowDecorationProperties.ElementRole="MinimizeButton">
                     <svg:Svg Css="{DynamicResource Theme.IconCss}" Path="/Assets/Icons/minimize.svg" Width="16" Height="16" Stretch="Uniform"/>
