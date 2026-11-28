@@ -108,6 +108,52 @@ internal sealed class ModProfileStore
         return Load();
     }
 
+    internal void ExportPack(Guid expectedProfile, Stream destination)
+    {
+        using var fileLock = Lock();
+        var state = Load(expectedProfile);
+        var profile = state.Profiles.Single(profile => profile.Id == expectedProfile);
+        ProfilePack.Write(destination, profile.Name, _gamePath, state.InstalledMods);
+    }
+
+    internal GameModProfiles ImportPack(Guid expectedProfile, ImportedProfilePack pack, string externalRoot,
+        IReadOnlyList<StagedMod> managed)
+    {
+        using var fileLock = Lock();
+        var state = Load(expectedProfile);
+        if (state.Profiles.Any(profile => profile.Name == pack.Name))
+            throw new InvalidOperationException(LocalizationService.Instance["StatusProfileNameTaken"]);
+
+        ProfilePack.ValidateDestinations(managed.Select(mod => mod.Install.RelativePath).Concat(pack.ExternalPaths));
+        var generation = Guid.NewGuid();
+        var profile = new ModProfile { Name = pack.Name, SnapshotId = generation };
+        var snapshot = SnapshotPath(profile.Id, generation);
+        try
+        {
+            foreach (var directory in ProfileFiles.ProfileDirectories)
+                Directory.CreateDirectory(Path.Combine(snapshot, directory));
+
+            var installs = PrepareInstalls(snapshot, [], managed, null, (path, source) =>
+                File.Copy(source, ProfileFiles.Resolve(snapshot, path)));
+            foreach (var path in pack.ExternalPaths)
+            {
+                var destination = ProfileFiles.Resolve(snapshot, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Copy(ProfileFiles.Resolve(externalRoot, path), destination);
+            }
+
+            state.Profiles.Add(profile);
+            state.ManagedInstalls.Add(profile.Id, installs);
+            ProfileFiles.WriteJson(_statePath, state);
+            return state;
+        }
+        catch
+        {
+            ProfileFiles.TryDeleteDirectory(snapshot);
+            throw;
+        }
+    }
+
     internal FileStream LockForLaunch(Guid expectedProfile)
     {
         var fileLock = Lock();

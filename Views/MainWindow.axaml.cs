@@ -30,7 +30,7 @@ public partial class MainWindow : Window
             WindowCaptionButtons.IsVisible = false;
         }
 
-        _overlays = [UpdateOverlay, ReplacementOverlay, DependenciesOverlay, RemoveOverlay, DirectInstallOverlay, DetailsOverlay];
+        _overlays = [UpdateOverlay, ProfileImportOverlay, ReplacementOverlay, DependenciesOverlay, RemoveOverlay, DirectInstallOverlay, DetailsOverlay];
         foreach (var overlay in _overlays)
         {
             overlay.PropertyChanged += (_, change) =>
@@ -43,6 +43,11 @@ public partial class MainWindow : Window
         AddHandler(PointerPressedEvent, OnModPointerPressed, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnModPointerReleased, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
+        Closing += (_, _) =>
+        {
+            if (DataContext is MainWindowViewModel vm)
+                vm.CancelProfileImportCommand.Execute(null);
+        };
     }
 
     private static ListBoxItem? GetModListItem(object? source)
@@ -97,6 +102,8 @@ public partial class MainWindow : Window
                     return;
                 vm.CloseUpdatePanelCommand.Execute(null);
             }
+            else if (ProfileImportOverlay.IsVisible)
+                vm.CancelProfileImportCommand.Execute(null);
             else if (ReplacementOverlay.IsVisible)
                 vm.CancelReplacementCommand.Execute(null);
             else if (DependenciesOverlay.IsVisible)

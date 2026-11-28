@@ -10,17 +10,20 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace StellarModManager.ViewModels;
 
 public partial class MainWindowViewModel
 {
-    private sealed record ProfileFile(int SchemaVersion, string Name, List<Guid> SubmissionUuids);
+    private static readonly FilePickerFileType PackFileType = new("Stellar Profile Pack")
+    {
+        Patterns = ["*" + ProfilePack.Extension]
+    };
 
     private ModProfileStore? _profileStore;
     private ModProfile? _profilePendingDeletion;
+    private TaskCompletionSource<bool>? _profileImportConfirmation;
 
     public ObservableCollection<ModProfile> ModProfiles { get; } = [];
 
@@ -41,6 +44,11 @@ public partial class MainWindowViewModel
     [NotifyPropertyChangedFor(nameof(AreModActionsBlocked))]
     public partial bool IsModOperationInProgress { get; set; }
 
+    [ObservableProperty]
+    public partial bool IsConfirmProfileImportOpen { get; set; }
+
+    [ObservableProperty]
+    public partial IReadOnlyList<InstalledModInfo> ProfileImportExternalMods { get; set; } = [];
 
     private void OpenGameProfiles(string gamePath, string? legacyGamePath)
     {
@@ -293,27 +301,37 @@ public partial class MainWindowViewModel
     [RelayCommand]
     private async Task ExportProfile()
     {
-        if (ActiveProfile == null || GetMainWindow() is not Window window || !TryBeginModOperation())
+        if (ActiveProfile is not { } profile || GetMainWindow() is not Window window || !TryBeginModOperation())
             return;
 
         IsProfilesDropdownOpen = false;
         try
         {
-            var profile = new ProfileFile(2, ActiveProfileName, InstalledMods.Select(m => Guid.Parse(m.Id)).ToList());
-            var file = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            var store = _profileStore!;
+            using var file = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title = LocalizationService.Instance["ProfileExport"],
-                SuggestedFileName = profile.Name,
-                DefaultExtension = "json",
-                FileTypeChoices = [new FilePickerFileType("JSON") { Patterns = ["*.json"] }]
+                SuggestedFileName = profile.Name + ProfilePack.Extension,
+                DefaultExtension = ProfilePack.Extension[1..],
+                FileTypeChoices = [PackFileType],
+                ShowOverwritePrompt = true
             });
 
             if (file == null)
                 return;
+            RequirePackExtension(file.Name);
+
+            var temporary = Path.Combine(Path.GetTempPath(), $"stellar-pack-{Guid.NewGuid():N}.sdpack");
+            await using var archive = new FileStream(temporary, FileMode.CreateNew, FileAccess.ReadWrite,
+                FileShare.None, 4096, FileOptions.DeleteOnClose | FileOptions.Asynchronous);
+            await Task.Run(() => store.ExportPack(profile.Id, archive));
+            archive.Position = 0;
+
             await using var stream = await file.OpenWriteAsync();
             if (stream.CanSeek)
                 stream.SetLength(0);
-            await JsonSerializer.SerializeAsync(stream, profile, new JsonSerializerOptions { WriteIndented = true });
+            await archive.CopyToAsync(stream);
+            await stream.FlushAsync();
             ReportSuccess("StatusProfileExported", profile.Name);
         }
         catch (Exception ex)
@@ -332,39 +350,65 @@ public partial class MainWindowViewModel
         if (GetMainWindow() is not Window window || !TryBeginModOperation())
             return;
 
+        DirectoryInfo? workspace = null;
         IsProfilesDropdownOpen = false;
         try
         {
+            var store = _profileStore!;
+            var active = ActiveProfile!.Id;
             var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = LocalizationService.Instance["ProfileImport"],
                 AllowMultiple = false,
-                FileTypeFilter = [new FilePickerFileType("JSON") { Patterns = ["*.json"] }]
+                FileTypeFilter = [PackFileType]
             });
 
             if (files.Count == 0)
                 return;
 
-            await using var stream = await files[0].OpenReadAsync();
-            var imported = await JsonSerializer.DeserializeAsync<ProfileFile>(stream);
-            if (imported is not { SchemaVersion: 2, SubmissionUuids: not null } ||
-                imported.SubmissionUuids.Contains(Guid.Empty) || string.IsNullOrWhiteSpace(imported.Name))
-                throw new InvalidDataException(LocalizationService.Instance["StatusProfileInvalid"]);
+            using var file = files[0];
+            RequirePackExtension(file.Name);
+            workspace = Directory.CreateTempSubdirectory("stellar-pack-");
+            var workspacePath = workspace.FullName;
+            var externalRoot = Path.Combine(workspacePath, "external");
+            ImportedProfilePack pack;
+            await using (var stream = await file.OpenReadAsync())
+                pack = await Task.Run(() => ProfilePack.Read(stream, workspacePath, externalRoot));
 
-            var profile = new ModProfile
+            if (ModProfiles.Any(profile => profile.Name == pack.Name))
             {
-                Name = imported.Name.Trim(),
-                PendingSubmissionIds = imported.SubmissionUuids.Distinct().ToList()
-            };
-            var store = _profileStore!;
-            var active = ActiveProfile!.Id;
-            var state = await Task.Run(() => store.Edit(active, current =>
+                ReportError("StatusProfileNameTaken");
+                return;
+            }
+
+            if (pack.ExternalMods.Count > 0 && !await ConfirmExternalModsAsync(pack.ExternalMods))
+                return;
+
+            var installs = new List<ManagedInstall>();
+            var missing = new List<string>();
+            foreach (var release in pack.ManagedReleases)
             {
-                EnsureUniqueProfileName(current, profile.Name);
-                current.Profiles.Add(profile);
-            }));
+                var online = await _repositoryService.GetReleaseAsync(release.SubmissionUuid, release.ReleaseUuid, default);
+                if (online is { CanInstall: true })
+                    installs.Add(ModInstallerService.Describe(online));
+                else
+                    missing.Add(release.Code);
+            }
+
+            if (missing.Count > 0)
+            {
+                ReportError("StatusProfileImportMissingReleases", string.Join(", ", missing));
+                return;
+            }
+
+            using var installer = new ModInstallerService();
+            var staged = new List<StagedMod>();
+            foreach (var install in installs)
+                staged.Add(await installer.StageAsync(install, _repositoryService, null));
+
+            var state = await Task.Run(() => store.ImportPack(active, pack, externalRoot, staged));
             ShowProfileState(state);
-            ReportSuccess("StatusProfileImported", profile.Name);
+            ReportSuccess("StatusProfileImported", pack.Name);
         }
         catch (Exception ex)
         {
@@ -372,7 +416,39 @@ public partial class MainWindowViewModel
         }
         finally
         {
+            if (workspace != null)
+                ProfileFiles.TryDeleteDirectory(workspace.FullName);
             IsModOperationInProgress = false;
         }
     }
+
+    private static void RequirePackExtension(string fileName)
+    {
+        if (!fileName.EndsWith(ProfilePack.Extension, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException(LocalizationService.Instance["StatusProfilePackExtension"]);
+    }
+
+    private async Task<bool> ConfirmExternalModsAsync(IReadOnlyList<InstalledModInfo> mods)
+    {
+        var confirmation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _profileImportConfirmation = confirmation;
+        ProfileImportExternalMods = mods;
+        IsConfirmProfileImportOpen = true;
+        try
+        {
+            return await confirmation.Task;
+        }
+        finally
+        {
+            IsConfirmProfileImportOpen = false;
+            ProfileImportExternalMods = [];
+            _profileImportConfirmation = null;
+        }
+    }
+
+    [RelayCommand]
+    private void ConfirmProfileImport() => _profileImportConfirmation?.TrySetResult(true);
+
+    [RelayCommand]
+    private void CancelProfileImport() => _profileImportConfirmation?.TrySetResult(false);
 }

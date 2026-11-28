@@ -614,6 +614,40 @@
                     </StackPanel>
                 </Border>
             </Border>
+            <Border Classes="overlay" x:Name="ProfileImportOverlay" KeyboardNavigation.TabNavigation="Cycle"
+                    IsVisible="{Binding IsConfirmProfileImportOpen}">
+                <Border Classes="dialog" Width="460">
+                    <StackPanel Spacing="16">
+                        <TextBlock FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"
+                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileImportExternalTitle]}"/>
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Theme.TextSecondaryBrush}"
+                                   Text="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileImportExternalMessage]}"/>
+                        <ScrollViewer MaxHeight="224" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl ItemsSource="{Binding ProfileImportExternalMods}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:InstalledModInfo">
+                                        <StackPanel Spacing="2" Margin="0,0,12,8">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding ExternalPath}" TextWrapping="Wrap"
+                                                       Foreground="{DynamicResource Theme.TextSecondaryBrush}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <Grid ColumnDefinitions="*,*">
+                            <Button Grid.Column="0" Classes="subtle" Margin="0,0,4,0"
+                                    Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[Cancel]}"
+                                    Command="{Binding CancelProfileImportCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                            <Button Grid.Column="1" Classes="accent" Margin="4,0,0,0"
+                                    Content="{Binding Source={x:Static loc:LocalizationService.Instance}, Path=[ProfileImportExternalConfirm]}"
+                                    Command="{Binding ConfirmProfileImportCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Border>
             <views:UpdatePanelView x:Name="UpdateOverlay" Focusable="True" KeyboardNavigation.TabNavigation="Cycle" IsVisible="{Binding IsUpdatePanelOpen}"/>
 
         </Grid>
