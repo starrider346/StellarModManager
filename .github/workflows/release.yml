@@ -82,8 +82,25 @@ jobs:
           test -x "$publish_dir/StellarModManager"
           test -f "$publish_dir/Data/Localization/en.json"
           test -f "$publish_dir/Data/Themes/slate.json"
-          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          mkdir -p "$app/Contents/"{MacOS,Frameworks,Resources}
           /usr/bin/ditto "$publish_dir" "$app/Contents/MacOS"
+
+          for file in "$app/Contents/MacOS/"*; do
+            name=${file##*/}
+            case "$name" in
+              StellarModManager) continue ;;
+              *.dylib) destination=Frameworks ;;
+              *) destination=Resources ;;
+            esac
+            mv "$file" "$app/Contents/$destination/"
+            if [[ "$destination" == Frameworks ]]; then
+              /usr/bin/codesign --force --sign - "$app/Contents/Frameworks/$name"
+              # The .NET host also resolves native libraries beside the managed assemblies.
+              ln -s "../Frameworks/$name" "$app/Contents/Resources/$name"
+            fi
+            ln -s "../$destination/$name" "$file"
+          done
+
           cp License.txt "$app/Contents/Resources/"
           /usr/bin/sips -s format icns Assets/icon.ico --out "$app/Contents/Resources/StellarModManager.icns"
 
@@ -126,8 +143,12 @@ jobs:
           PLIST
 
           /usr/bin/plutil -lint "$app/Contents/Info.plist"
+          /usr/bin/codesign --force --sign - "$app"
           mkdir -p Output
-          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "Output/StellarModManager_${VERSION}_osx-arm64.zip"
+          archive="Output/StellarModManager_${VERSION}_osx-arm64.zip"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "$archive"
+          /usr/bin/ditto -x -k "$archive" "$stage/verify"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$stage/verify/Stellar Mod Manager.app"
 
       - uses: actions/upload-artifact@v4
         with:
